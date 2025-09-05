@@ -8,11 +8,7 @@
 <h2 class="title">{{ stock.symbol }} - Stock Chart</h2>
 
 <a class="back-link" href="{{ url_for('views.heatmap') }}">Heatmap</a>
-<a class="back-link" href="{{ url_for('views.forecasting') }}">forecasting</a>
-
-<div class="stock-info">
-    Price: ${{ stock.price }} | Change: {{ stock.change }}%
-</div>
+<a class="back-link" href="{{ url_for('views.forecasting', symbol=stock.symbol) }}">Forecasting</a>
 
 <!-- TradingView Widget -->
 <div class="tradingview-widget-container">
@@ -34,5 +30,10 @@
   });
   </script>
 </div>
+
+<div class="stock-info">
+    Price: ${{ stock.price }} | Change: {{ stock.change }}%
+</div>
+
 
 {% endblock %}

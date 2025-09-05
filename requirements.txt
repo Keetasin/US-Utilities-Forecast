@@ -2,3 +2,5 @@ flask
 flask_sqlalchemy
 yfinance
 apscheduler
+statsmodels
+scikit-learn

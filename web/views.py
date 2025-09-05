@@ -96,66 +96,41 @@ def stock_detail(symbol):
     return render_template("stock_detail.html", stock=stock)
 
 
-@views.route('/forecasting')
+# @views.route('/forecasting')
 @views.route('/forecasting/<symbol>')
 def forecasting(symbol=None):
     if not symbol:
         return render_template("forecasting.html", has_data=False, tickers=TICKERS)
 
     try:
-        print(f"Starting forecast for {symbol}...")
-        
         full_hist_data = yf.download(symbol, period="2y", progress=False)['Close']
-        
-        # --- START: Backtesting Logic ---
-        print("Performing backtest...")
+
+        # Backtest 7 วันสุดท้าย
         train_data = full_hist_data[:-7]
-        
-        backtest_model = ARIMA(train_data, order=(5, 1, 0))
-        backtest_model_fit = backtest_model.fit()
-        backtest_forecast_result = backtest_model_fit.forecast(steps=7)
-        actual_data_for_backtest = full_hist_data[-7:]
-        
-        # 2. คำนวณค่า Mean Absolute Error
-        backtest_mae = mean_absolute_error(actual_data_for_backtest.values, backtest_forecast_result.values)
-        
-        # --- START OF FIX ---
-        # สร้างวันที่สำหรับช่วง Backtest (คือวันที่ 7 วันสุดท้ายของข้อมูลทั้งหมด)
+        backtest_model = ARIMA(train_data, order=(5,1,0)).fit()
+        backtest_forecast_result = backtest_model.forecast(steps=7)
         backtest_dates = full_hist_data.index[-7:]
-        
-        backtest_data = [
-            {"date": date.strftime('%Y-%m-%d'), "price": round(float(price), 2)}
-            for date, price in zip(backtest_dates, backtest_forecast_result.values)
-        ]
-        # --- END OF FIX ---
-        # --- END: Backtesting Logic ---
+        backtest_mae = mean_absolute_error(full_hist_data[-7:].values, backtest_forecast_result.values)
+        backtest_data = [{"date": d.strftime('%Y-%m-%d'), "price": round(float(p),2)}
+                         for d, p in zip(backtest_dates, backtest_forecast_result.values)]
 
-        # --- START: Future Forecast Logic ---
-        print(f"Training final model for future forecast...")
-        final_model = ARIMA(full_hist_data, order=(5, 1, 0))
-        final_model_fit = final_model.fit()
-        future_forecast_result = final_model_fit.forecast(steps=7)
-        
+        # Future forecast 7 วัน
+        final_model = ARIMA(full_hist_data, order=(5,1,0)).fit()
+        future_forecast_result = final_model.forecast(steps=7)
         last_date = full_hist_data.index[-1]
-        future_dates = [last_date + timedelta(days=i) for i in range(1, 8)]
-        
-        future_forecast_data = [
-            {"date": date.strftime('%Y-%m-%d'), "price": round(float(price), 2)}
-            for date, price in zip(future_dates, future_forecast_result.values)
-        ]
-        # --- END: Future Forecast Logic ---
+        future_dates = [last_date + timedelta(days=i) for i in range(1,8)]
+        future_forecast_data = [{"date": d.strftime('%Y-%m-%d'), "price": round(float(p),2)}
+                                for d,p in zip(future_dates, future_forecast_result.values)]
 
+        # Historical 90 วันล่าสุด
         hist_data_for_chart = full_hist_data.tail(90)
-        historical_data = [
-            {"date": date.strftime('%Y-%m-%d'), "price": round(float(price), 2)}
-            for date, price in zip(hist_data_for_chart.index, hist_data_for_chart.values)
-        ]
-        
+        historical_data = [{"date": d.strftime('%Y-%m-%d'), "price": round(float(p),2)}
+                           for d,p in zip(hist_data_for_chart.index, hist_data_for_chart.values)]
+
         trend_direction = "Up" if future_forecast_data[-1]['price'] > historical_data[-1]['price'] else "Down"
         trend_icon = "🔼" if trend_direction == "Up" else "🔽"
         trend_info = {"direction": trend_direction, "icon": trend_icon}
 
-        print(f"Forecast for {symbol} successful.")
         return render_template("forecasting.html",
                                symbol=symbol,
                                forecast=future_forecast_data,
@@ -165,7 +140,7 @@ def forecasting(symbol=None):
                                has_data=True,
                                tickers=TICKERS,
                                trend=trend_info)
-                               
+
     except Exception as e:
-        print(f"An error occurred during forecast for {symbol}: {e}")
+        print(f"Forecast error for {symbol}: {e}")
         return str(e), 500
