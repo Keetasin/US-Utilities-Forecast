@@ -1,11 +1,10 @@
-from flask import Blueprint, render_template, current_app
+from flask import Blueprint, render_template
 from . import db
 from .models import Stock
 import yfinance as yf
 from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import datetime, time, timedelta
 import pytz
-import os
 import pandas as pd
 from statsmodels.tsa.arima.model import ARIMA
 from sklearn.metrics import mean_absolute_error
@@ -14,15 +13,22 @@ views = Blueprint('views', __name__)
 
 TICKERS = ["AAPL", "MSFT", "AMZN", "GOOGL", "META", "NVDA", "TSLA"]
 
-# ... (ส่วน fetch_and_update_stock, update_stock_data, initialize_stocks ไม่มีการเปลี่ยนแปลง) ...
+# -----------------------------
+# Fetch stock info
 def fetch_and_update_stock(t):
-    """ดึงข้อมูลหุ้นจาก yfinance และอัปเดต Stock object"""
     stock = yf.Ticker(t)
-    info = stock.history(period="5d")
-    if len(info) >= 2:
-        close = info["Close"].iloc[-1]
-        prev_close = info["Close"].iloc[-2]
-        change_pct = ((close - prev_close) / prev_close) * 100
+    info = stock.history(period="1d", interval="1m")
+
+    if len(info) >= 1:
+        close = info["Close"].iloc[-1]        # ราคาล่าสุด
+        prev_close = stock.info.get("previousClose", None)  # ราคาปิดเมื่อวาน
+
+        if prev_close:
+            change_pct = ((close - prev_close) / prev_close) * 100
+        else:
+            open_price = info["Open"].iloc[0]  # ถ้าไม่มี previousClose ใช้ราคาเปิดวันแทน
+            change_pct = ((close - open_price) / open_price) * 100
+
         cap = stock.info.get("marketCap", 0)
 
         intensity = min(abs(change_pct), 3) / 3
@@ -30,36 +36,40 @@ def fetch_and_update_stock(t):
         hue = 120 if change_pct >= 0 else 0
         bg_color = f"hsl({hue}, 80%, {lightness}%)"
 
+        print(f"[{t}] Price={close:.2f}, Change={change_pct:.2f}%")
+
         return round(close, 2), round(change_pct, 2), cap, bg_color
+
     return None, None, None, None
 
 
-def update_stock_data(force=False):
-    """อัปเดตข้อมูลหุ้น"""
-    tz = pytz.timezone("US/Eastern")
-    now = datetime.now(tz)
-    market_open = time(9, 30)
-    market_close = time(16, 0)
+def update_stock_data(app, force=False):
+    """อัปเดตข้อมูลหุ้น (ต้องส่ง app มาเพื่อใช้ context)"""
+    with app.app_context():
+        tz = pytz.timezone("US/Eastern")
+        now = datetime.now(tz)
+        market_open = time(9, 30)
+        market_close = time(16, 0)
 
-    update_allowed = market_open <= now.time() <= market_close or force
+        update_allowed = market_open <= now.time() <= market_close or force
 
-    for t in TICKERS:
-        s = Stock.query.filter_by(symbol=t).first()
-        if not s:
-            s = Stock(symbol=t, price=0.0, change=0.0, marketCap=0, bg_color="hsl(0,0%,50%)")
-            db.session.add(s)
-            db.session.commit()
+        for t in TICKERS:
+            s = Stock.query.filter_by(symbol=t).first()
+            if not s:
+                s = Stock(symbol=t, price=0.0, change=0.0, marketCap=0, bg_color="hsl(0,0%,50%)")
+                db.session.add(s)
+                db.session.commit()
 
-        if update_allowed:
-            price, change, cap, bg_color = fetch_and_update_stock(t)
-            if price is not None:
-                s.price = price
-                s.change = change
-                s.marketCap = cap
-                s.bg_color = bg_color
+            if update_allowed:
+                price, change, cap, bg_color = fetch_and_update_stock(t)
+                if price is not None:
+                    s.price = price
+                    s.change = change
+                    s.marketCap = cap
+                    s.bg_color = bg_color
 
-    db.session.commit()
-    print(f"[{now}] Stock data updated (force={force})")
+        db.session.commit()
+        print(f"[{now}] Stock data updated (force={force})")
 
 
 def initialize_stocks(app):
@@ -67,15 +77,19 @@ def initialize_stocks(app):
     with app.app_context():
         if Stock.query.count() == 0:
             print("DB empty. Fetching initial stock data...")
-            update_stock_data(force=True)
+            update_stock_data(app, force=True)
         else:
             print("DB already has stock data.")
 
 # -----------------------------
-# Start scheduler
+# Scheduler
 scheduler = BackgroundScheduler()
-scheduler.add_job(func=update_stock_data, trigger="interval", minutes=1)
-scheduler.start()
+
+def start_scheduler(app):
+    """เริ่ม scheduler พร้อม app context"""
+    scheduler.add_job(func=lambda: update_stock_data(app), trigger="interval", minutes=1)
+    scheduler.start()
+    print("Scheduler started ✅")
 
 # -----------------------------
 # Routes
@@ -96,7 +110,6 @@ def stock_detail(symbol):
     return render_template("stock_detail.html", stock=stock)
 
 
-# @views.route('/forecasting')
 @views.route('/forecasting/<symbol>')
 def forecasting(symbol=None):
     if not symbol:
