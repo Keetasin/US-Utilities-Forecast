@@ -1,12 +1,24 @@
 {% extends "base.html" %}
 
-{% block title %}
-    Home
-{% endblock %}
+{% block title %}Home{% endblock %}
 
 {% block content %}
-<link rel="stylesheet" type="text/css" href="../static/style/welcome.css">
+<link rel="stylesheet" href="{{ url_for('static', filename='style/home.css') }}">
 
-        <h2>Forecasting "The Magnificent Seven" with Time Series Analysis</h2>
+<h2>Forecasting "The Magnificent Seven" with Time Series Analysis</h2>
 
+<div class="card-container">
+    <div class="card">
+        <h3>Heatmap</h3>
+        <p>View the latest Magnificent 7 stock performance in an interactive heatmap.</p>
+    </div>
+    <div class="card">
+        <h3>Stock Charts</h3>
+        <p>Click any stock in the heatmap to view detailed charts with TradingView widget.</p>
+    </div>
+    <div class="card">
+        <h3>Insights & Forecast</h3>
+        <p>Explore predictions and analysis of the Magnificent Seven using time series models.</p>
+    </div>
+</div>
 {% endblock %}
