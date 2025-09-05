@@ -1,11 +1,146 @@
 {% extends "base.html" %}
 
-{% block title %}forecasting{% endblock %}
+{% block title %}Stock Forecasting{% endblock %}
 
 {% block content %}
 <link rel="stylesheet" href="{{ url_for('static', filename='style/heatmap.css') }}">
+<style>
+    /* เพิ่ม Style สำหรับปุ่มเลือกหุ้น */
+    .stock-selector {
+        margin-bottom: 30px;
+    }
+    .stock-selector .btn {
+        margin: 5px;
+        background-color: rgba(0, 229, 255, 0.2);
+        border: 1px solid #00e5ff;
+        color: #00e5ff;
+        font-weight: bold;
+    }
+    .stock-selector .btn:hover {
+        background-color: #00e5ff;
+        color: #0b0c10;
+    }
+    .summary-box {
+        display: inline-block;
+        padding: 15px 25px;
+        margin-bottom: 20px;
+        border-radius: 16px;
+        background: rgba(20, 20, 20, 0.8);
+        box-shadow: 0 0 15px rgba(0, 255, 255, 0.4);
+        font-size: 16px;
+        font-weight: 600;
+        z-index: 1;
+        position: relative;
+    }
+    .summary-box p {
+        margin: 5px 0;
+    }
+    .disclaimer {
+        margin-top: 20px;
+        font-size: 12px;
+        color: #888;
+    }
+</style>
 
-<h2 class="title">forecasting</h2>
+<h2 class="title">Stock Price Forecasting</h2>
 
+<div class="stock-selector">
+    {% for ticker in tickers %}
+        <a href="{{ url_for('views.forecasting', symbol=ticker) }}" 
+           class="btn {% if ticker == symbol %}active{% endif %}">{{ ticker }}</a>
+    {% endfor %}
+</div>
 
+{% if has_data %}
+    <h3 class="title" style="font-size: 28px;">{{ symbol }} Price Forecast</h3>
+
+    <div class="summary-box">
+        <p>Last Price: ${{ historical[-1].price }}</p>
+        <p>7-Day Forecast: ${{ forecast[-1].price }}</p>
+        <p>Trend: {{ trend.icon }} {{ trend.direction }}</p>
+        <hr style="border-color: #444;"> <p>Backtest Error (MAE): ${{ backtest_mae | round(2) }}</p>
+    </div>
+
+    <div class="chart-container" style="position: relative; width: 80%; max-width: 900px; margin: auto;">
+        <canvas id="forecastChart"></canvas>
+    </div>
+
+    <p class="disclaimer">This is a statistical forecast, not financial advice.</p>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        const ctx = document.getElementById('forecastChart');
+        
+        // ดึงข้อมูลทั้งหมดจาก Flask
+        const historicalData = {{ historical | tojson }};
+        const forecastData = {{ forecast | tojson }};
+        const backtestData = {{ backtest | tojson }}; // รับข้อมูล backtest
+
+        // เตรียม Labels และ Data Sets
+        const historicalLabels = historicalData.map(d => d.date);
+        const futureLabels = forecastData.map(d => d.date);
+        const allLabels = historicalLabels.concat(futureLabels);
+
+        const historicalPrices = historicalData.map(d => d.price);
+        
+        // เตรียมข้อมูล Backtest สำหรับพล็อต
+        // สร้าง Array ที่มีความยาวเท่ากับ historicalPrices
+        // ใส่ null ในช่วงที่ไม่มีข้อมูล backtest และใส่ราคาในช่วง 7 วันสุดท้าย
+        const backtestPrices = Array(historicalPrices.length - 7).fill(null).concat(backtestData.map(d => d.price));
+
+        // ใส่ null ข้างหน้าเพื่อให้เส้นกราฟ forecast เริ่มต่อจาก historical
+        const forecastPrices = Array(historicalPrices.length).fill(null).concat(forecastData.map(d => d.price));
+
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: allLabels,
+                datasets: [{
+                    label: 'Historical Price',
+                    data: historicalPrices,
+                    borderColor: 'rgb(0, 229, 255)', // สีฟ้า
+                    borderWidth: 2,
+                    pointRadius: 1,
+                    tension: 0.1
+                }, {
+                    label: 'Backtest Validation',
+                    data: backtestPrices,
+                    borderColor: 'rgb(0, 255, 132)', // สีเขียว
+                    borderDash: [5, 5],
+                    borderWidth: 2,
+                    pointRadius: 2
+                }, {
+                    label: 'Future Forecast',
+                    data: forecastPrices,
+                    borderColor: 'rgb(255, 204, 0)', // สีเหลือง
+                    borderDash: [5, 5],
+                    borderWidth: 2,
+                    pointRadius: 2
+                }]
+            },
+            options: {
+                scales: {
+                    y: { 
+                        beginAtZero: false,
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                        ticks: { color: '#fff' }
+                    },
+                    x: {
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                        ticks: { color: '#fff' }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        labels: {
+                            color: '#fff'
+                        }
+                    }
+                }
+            }
+        });
+    </script>
+{% else %}
+    <h3 class="title" style="margin-top: 50px;">Please select a stock to see the forecast.</h3>
+{% endif %}
 {% endblock %}
