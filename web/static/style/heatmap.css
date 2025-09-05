@@ -1,0 +1,124 @@
+/* ---------------------------- */
+/* Base & Dark Mode */
+body {
+    margin: 0;
+    padding: 0;
+    font-family: 'Segoe UI', sans-serif;
+    background: #0b0c10;
+    color: #fff;
+    text-align: center;
+    overflow-x: hidden;
+}
+
+/* Animated floating particles background */
+body::before {
+    content: '';
+    position: fixed;
+    top:0; left:0; width:100%; height:100%;
+    background: radial-gradient(circle, rgba(0,255,255,0.05) 1px, transparent 1px);
+    background-size: 50px 50px;
+    z-index: 0;
+    animation: moveParticles 30s linear infinite;
+}
+@keyframes moveParticles {
+    from { background-position: 0 0; }
+    to { background-position: 1000px 1000px; }
+}
+
+/* Title */
+.title {
+    font-size: 32px;
+    margin: 20px 0;
+    color: #00e5ff;
+    z-index: 1;
+    position: relative;
+}
+
+/* Legend */
+.legend {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin-bottom: 20px;
+    z-index: 1;
+    position: relative;
+}
+.legend-bar {
+    width: 200px;
+    height: 20px;
+    background: linear-gradient(to right, red, white, green);
+    border-radius: 10px;
+}
+
+/* Grid Layout 3+3+1 (ตัวสุดท้ายกลาง) */
+.grid-container {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-auto-rows: 150px;
+    gap: 20px;
+    max-width: 900px;
+    margin: 0 auto;
+    z-index: 1;
+    position: relative;
+}
+.grid-container > :nth-child(7) {
+    grid-column: 2 / span 1; /* ตัวสุดท้ายอยู่ตรงกลาง */
+}
+
+/* Stock Card */
+.stock-card {
+    border-radius: 16px;
+    padding: 15px;
+    font-weight: bold;
+    transition: transform 0.3s, box-shadow 0.3s;
+    color: #fff;
+    cursor: pointer;
+    position: relative;
+    z-index: 1;
+}
+
+/* Hover effect: scale + glow + tooltip */
+.stock-card:hover {
+    transform: scale(1.1);
+    box-shadow: 0 0 20px 5px rgba(0, 255, 0, 0.7);
+    z-index: 2;
+}
+
+/* Tooltip */
+.stock-card::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 110%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(20,20,20,0.9);
+    color: #fff;
+    padding: 5px 10px;
+    border-radius: 6px;
+    opacity: 0;
+    white-space: nowrap;
+    pointer-events: none;
+    transition: opacity 0.3s;
+    font-size: 14px;
+}
+.stock-card:hover::after {
+    opacity: 1;
+}
+
+/* Text inside card */
+.stock-card h3 { font-size: 20px; margin-bottom: 10px; }
+.stock-card .price { font-size: 18px; }
+.stock-card .change { font-size: 16px; font-weight: 600; }
+
+/* Glow animation for positive/negative */
+@keyframes pulseGlow {
+    0% { box-shadow: 0 0 5px rgba(0,255,0,0.5); }
+    50% { box-shadow: 0 0 20px rgba(0,255,0,0.8); }
+    100% { box-shadow: 0 0 5px rgba(0,255,0,0.5); }
+}
+.stock-card.positive:hover { animation: pulseGlow 1.5s infinite; }
+.stock-card.negative:hover { animation: pulseGlow 1.5s infinite; }
+
+/* Link reset */
+.grid-container a { text-decoration: none; }

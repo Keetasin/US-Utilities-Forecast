@@ -1,0 +1,81 @@
+/* ---------------------------- */
+/* Base & Dark Mode */
+body {
+    margin: 0;
+    padding: 0;
+    font-family: 'Segoe UI', sans-serif;
+    background: #0b0c10;
+    color: #fff;
+    text-align: center;
+    overflow-x: hidden;
+}
+
+/* Animated floating particles background */
+body::before {
+    content: '';
+    position: fixed;
+    top:0; left:0; width:100%; height:100%;
+    background: radial-gradient(circle, rgba(0,255,255,0.05) 1px, transparent 1px);
+    background-size: 50px 50px;
+    z-index: 0;
+    animation: moveParticles 30s linear infinite;
+}
+@keyframes moveParticles {
+    from { background-position: 0 0; }
+    to { background-position: 1000px 1000px; }
+}
+
+/* Title */
+.title {
+    font-size: 32px;
+    margin: 20px 0;
+    color: #00e5ff;
+    position: relative;
+    z-index: 1;
+}
+
+/* Stock Info Card */
+.stock-info {
+    display: inline-block;
+    padding: 15px 25px;
+    margin-bottom: 20px;
+    border-radius: 16px;
+    background: rgba(20, 20, 20, 0.8);
+    box-shadow: 0 0 15px rgba(0, 255, 255, 0.4);
+    font-size: 18px;
+    font-weight: 600;
+    z-index: 1;
+    position: relative;
+}
+
+/* TradingView Widget Container */
+.tradingview-widget-container {
+    margin: 0 auto 50px;
+    width: 90%;
+    max-width: 900px;
+    height: 500px;
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 0 20px rgba(0,255,255,0.3);
+    z-index: 1;
+    position: relative;
+}
+
+/* Link back to heatmap */
+.back-link {
+    display: inline-block;
+    margin-bottom: 20px;
+    padding: 10px 20px;
+    border-radius: 10px;
+    background: #00e5ff;
+    color: #0b0c10;
+    font-weight: bold;
+    text-decoration: none;
+    transition: transform 0.2s, box-shadow 0.2s;
+    z-index: 1;
+    position: relative;
+}
+.back-link:hover {
+    transform: scale(1.05);
+    box-shadow: 0 0 15px #00e5ff;
+}

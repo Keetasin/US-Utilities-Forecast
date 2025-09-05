@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Bootstrap CSS -->
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css" integrity="sha384-Vkoo8x4CGsO3+Hhxv8T/Q5PaXtkKtu6ug5TOeNV6gBiFeWPGFN9MuhOf23Q9Ifjh" crossorigin="anonymous">
+    <!-- Font Awesome CSS -->
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css">
+    <!-- Website icon -->
+    <link rel="website icon" type="png" href="../static/images/favicon.png">
+    <!-- Title -->
+    <title>{% block title %}Home{% endblock %}</title>
+    <!-- Custom CSS -->
+    <style>
+      body {
+          height: 100%;
+          min-height: 100vh;
+          background: linear-gradient(rgba(0, 123, 255, 0.7), rgba(255, 255, 255, 0.8)), 
+                      url('../static/images/page.jpg') no-repeat center center fixed;
+          background-size: cover;
+      }
+      
+      /* Glassmorphism Navbar */
+      .glassmorphism {
+        background: rgba(255, 255, 255, 0.2);
+        backdrop-filter: blur(10px);
+        padding: 15px 20px;
+        border-radius: 12px;
+        margin: 15px auto;
+        max-width: 95%;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+      }
+
+      /* Navbar Brand */
+      .navbar-brand {
+        font-size: 22px;
+        font-weight: bold;
+        color: #fff !important;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+      }
+
+      /* Navbar Links */
+      .navbar-nav .nav-item .nav-link {
+        font-size: 16px;
+        font-weight: 500;
+        color: #fff !important;
+        margin: 0 10px;
+        transition: all 0.3s ease-in-out;
+      }
+
+      /* Hover Effect */
+      .navbar-nav .nav-item .nav-link:hover {
+        color: #004ba0 !important;
+        background: rgba(255, 255, 255, 0.3);
+        border-radius: 8px;
+        padding: 8px 15px;
+      }
+
+      /* Custom Toggler */
+      .custom-toggler {
+        border: none;
+        outline: none;
+        background: none;
+      }
+
+      .custom-toggler .navbar-toggler-icon {
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3E%3Cpath stroke='rgba%28255, 255, 255, 0.9%29' stroke-width='2' d='M4 7h22M4 15h22M4 23h22'/%3E%3C/svg%3E");
+        width: 28px;
+        height: 28px;
+      }
+
+    </style>
+</head>
+<body>
+
+  <!-- Navigation bar -->
+  <nav class="navbar navbar-expand-lg navbar-light glassmorphism">
+    <a class="navbar-brand" href="/">
+        <i class="fa fa-book" aria-hidden="true"></i> Happy Stock
+    </a>
+
+    <button class="navbar-toggler custom-toggler" type="button" data-toggle="collapse" data-target="#navbar">
+        <span class="navbar-toggler-icon"></span>
+    </button>
+    
+    <div class="collapse navbar-collapse" id="navbar">
+        <ul class="navbar-nav ml-auto">
+            <li class="nav-item"><a class="nav-link" href="/heatmap">heatmap</a></li>
+        </ul>
+    </div>
+  </nav>
+
+    <!-- Flash messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %} 
+      {% if messages %}
+        {% for category, message in messages %}
+          {% if category == 'error' %}
+            <!-- Display error messages with a close button -->
+            <div class="alert alert-danger alter-dismissable fade show" role="alert">
+              {{ message }}
+              <button type="button" class="close" data-dismiss="alert">
+                <span aria-hidden="true">&times;</span>
+              </button>
+            </div>
+          {% else %}
+            <!-- Display success messages with a close button -->
+            <div class="alert alert-success alter-dismissable fade show" role="alert">
+              {{ message }}
+              <button type="button" class="close" data-dismiss="alert">
+                <span aria-hidden="true">&times;</span>
+              </button>
+            </div>
+          {% endif %}
+        {% endfor %}
+      {% endif %} 
+    {% endwith %}
+    
+    <!-- Content area -->
+    <div class="container">
+      {% block content %} {% endblock %}
+    </div>
+    
+    <!-- jQuery -->
+    <script src="https://code.jquery.com/jquery-3.2.1.slim.min.js" 
+    integrity="sha384-KJ3o2DKtIkvYIK3UENzmM7KCkRr/rE9/Qpg6aAZGJwFDMVNA/GpGFF93hXpG5KkN" 
+    crossorigin="anonymous"></script>
+    <!-- Popper.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.12.9/umd/popper.min.js" 
+    integrity="sha384-ApNbgh9B+Y1QKtv3Rn7W3mgPxhU9K/ScQsAP7hUibX39j7fakFPskvXusvfa0b4Q" 
+    crossorigin="anonymous"></script>
+    <!-- Bootstrap JS -->
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/js/bootstrap.min.js" 
+    integrity="sha384-JZR6Spejh4U02d8jOt6vLEHfe/JQGiRRSQQxSfFWpi1MquVdAyjUar5+76PVCmYl" 
+    crossorigin="anonymous"></script>
+</body>
+</html>

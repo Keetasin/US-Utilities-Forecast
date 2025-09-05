@@ -1,0 +1,66 @@
+/* Import Google Font */
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap');
+
+/* CSS for body */
+body {
+    height: 100%;
+    min-height: 100vh; 
+    background: linear-gradient(rgba(0, 123, 255, 0.7), rgba(255, 255, 255, 0.8)), 
+                url('../images/page.jpg') no-repeat center center fixed;
+    background-size: cover;
+    font-family: 'Poppins', sans-serif;
+    margin: 0;
+    padding: 0;
+    color: #333;
+}
+
+/* Center text and add padding for better spacing */
+h1, h2 {
+    text-align: center;
+    color: #ffffff;
+    font-weight: 600;
+}
+
+/* Style for paragraphs */
+p {
+    text-align: center;
+    line-height: 1.8;
+    background: rgba(255, 255, 255, 0.8);
+    padding: 20px;
+    border-radius: 15px;
+    margin: 20px auto;
+    max-width: 700px;
+    font-weight: 300;
+    color: #0056b3;
+}
+
+/* Center button container */
+.btn-container {
+    text-align: center;
+}
+
+/* Button styles */
+.btn {
+    display: inline-block;
+    width: 160px;
+    margin: 15px;
+    padding: 12px 20px;
+    text-align: center;
+    text-decoration: none;
+    font-size: 16px;
+    font-weight: 600;
+    color: white;
+    background: linear-gradient(45deg, #007bff, #00c6ff);
+    border-radius: 30px;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+/* Hover effect for buttons */
+.btn:hover {
+    background: linear-gradient(45deg, #0056b3, #0094ff);
+    transform: translateY(-3px);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+}
