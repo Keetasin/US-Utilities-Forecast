@@ -17,7 +17,8 @@ TICKERS = ["AAPL", "MSFT", "AMZN", "GOOGL", "META", "NVDA", "TSLA"]
 # Fetch stock info
 def fetch_and_update_stock(t):
     stock = yf.Ticker(t)
-    info = stock.history(period="1d", interval="1m")
+    # ดึง history 1 วันล่าสุด พร้อม auto_adjust=True
+    info = stock.history(period="1d", interval="1m", auto_adjust=True)
 
     if len(info) >= 1:
         close = info["Close"].iloc[-1]        # ราคาล่าสุด
@@ -51,7 +52,8 @@ def update_stock_data(app, force=False):
         market_open = time(9, 30)
         market_close = time(16, 0)
 
-        update_allowed = market_open <= now.time() <= market_close or force
+        # อัปเดตได้ทุกครั้งถ้า force=True หรือช่วงตลาดเปิด
+        update_allowed = force or (market_open <= now.time() <= market_close)
 
         for t in TICKERS:
             s = Stock.query.filter_by(symbol=t).first()
@@ -81,15 +83,18 @@ def initialize_stocks(app):
         else:
             print("DB already has stock data.")
 
+
 # -----------------------------
 # Scheduler
 scheduler = BackgroundScheduler()
 
 def start_scheduler(app):
     """เริ่ม scheduler พร้อม app context"""
-    scheduler.add_job(func=lambda: update_stock_data(app), trigger="interval", minutes=1)
+    # อัปเดตทุก 1 นาที แม้ตลาดปิด
+    scheduler.add_job(func=lambda: update_stock_data(app, force=True), trigger="interval", minutes=1)
     scheduler.start()
     print("Scheduler started ✅")
+
 
 # -----------------------------
 # Routes
@@ -97,10 +102,12 @@ def start_scheduler(app):
 def home():
     return render_template('home.html')
 
+
 @views.route('/heatmap')
 def heatmap():
     data = Stock.query.order_by(Stock.marketCap.desc()).all()
     return render_template("heatmap.html", data=data)
+
 
 @views.route('/stock/<symbol>')
 def stock_detail(symbol):
@@ -116,7 +123,8 @@ def forecasting(symbol=None):
         return render_template("forecasting.html", has_data=False, tickers=TICKERS)
 
     try:
-        full_hist_data = yf.download(symbol, period="2y", progress=False)['Close']
+        # ใช้ Close ราคาปรับแล้ว (Adjusted Close)
+        full_hist_data = yf.download(symbol, period="2y", progress=False, auto_adjust=True)['Close']
 
         # Backtest 7 วันสุดท้าย
         train_data = full_hist_data[:-7]
