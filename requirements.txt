@@ -4,3 +4,12 @@ yfinance
 apscheduler
 statsmodels
 scikit-learn
+
+
+transformers
+torch 
+torchvision 
+torchaudio
+tf-keras
+ollama
+
