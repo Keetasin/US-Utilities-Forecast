@@ -49,10 +49,12 @@
             {% if results[m].ok %} ${{ results[m].backtest_mae | round(2) }}
             {% else %} - {% endif %}
           </td>
-          <td>
-            {% if results[m].ok %} ${{ results[m].forecast_last }}
+            <td>
+            {% if results[m].ok %}
+                ${{ results[m].backtest_mae | round(2) }}
+                (<span style="opacity:.8;">~{{ results[m].backtest_mae_pct | round(2) }}%</span>)
             {% else %} - {% endif %}
-          </td>
+            </td>
           <td>
             {% if results[m].ok %}
               {% if best_model == m.upper() %}

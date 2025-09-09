@@ -34,13 +34,18 @@
 {% endif %}
 
 {% if has_data %}
-  <div class="summary-box">
+    <div class="summary-box">
     <p>Last Price: ${{ last_price }}</p>
     <p>7-Day Forecast: ${{ forecast[-1].price }}</p>
     <p>Trend: {{ trend.icon }} {{ trend.direction }}</p>
     <hr style="border-color:#444;">
-    <p>Backtest Error (MAE): ${{ backtest_mae }}</p>
-  </div>
+    <p>
+        Backtest Error (MAE):
+        ${{ backtest_mae | round(2) }}
+        (~{{ backtest_mae_pct | round(2) }}%)
+    </p>
+    </div>
+
 
   <div class="chart-container" style="position:relative; width:80%; max-width:900px; margin:auto;">
     <canvas id="forecastChart"></canvas>
