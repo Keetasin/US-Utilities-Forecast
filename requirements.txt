@@ -4,7 +4,7 @@ yfinance
 apscheduler
 statsmodels
 scikit-learn
-
+pandas-ta
 
 transformers
 torch 

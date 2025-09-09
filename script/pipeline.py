@@ -1,271 +1,270 @@
-import yfinance as yf
-import pandas as pd
+# pipeline_multi.py
+# -*- coding: utf-8 -*-
 import numpy as np
+import pandas as pd
+import yfinance as yf
 import matplotlib.pyplot as plt
-import datetime
-import requests
-from transformers import pipeline
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense, Input, Dropout
+from datetime import datetime
 from sklearn.preprocessing import MinMaxScaler
-from tensorflow.keras.callbacks import EarlyStopping
+import tensorflow as tf
+from tensorflow import keras
+from tensorflow.keras import layers
 
-# -----------------------------
-# STEP 1: Config
-# -----------------------------
-TICKERS = ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "TSLA", "NVDA"]  # The Magnificent Seven
-START_DATE = "2020-01-01"
-END_DATE = datetime.date.today().strftime("%Y-%m-%d")
-NEWS_API_KEY = "bfa14549cdc84faf88c40e947da98d4d"
+# =========================
+# Config
+# =========================
+TICKERS = ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "TSLA", "NVDA"]
+START = "2016-01-01"
+END   = None           # None = today
+LOOKBACK = 60
+TEST_RATIO = 0.15
+VAL_RATIO  = 0.15
+EPOCHS = 50
+BATCH_SIZE = 32
+SEED = 42
+np.random.seed(SEED)
+tf.random.set_seed(SEED)
 
-# -----------------------------
-# STEP 2: Fetch News (NewsAPI)
-# -----------------------------
-def fetch_news(query, api_key=NEWS_API_KEY):
-    url = f"https://newsapi.org/v2/everything?q={query}&sortBy=publishedAt&language=en&apiKey={api_key}"
-    try:
-        response = requests.get(url)
-        data = response.json()
-        articles = data.get("articles", [])
-        news_list = []
-        for a in articles:
-            title = a.get("title") or ""
-            desc = a.get("description") or ""
-            published = a.get("publishedAt")
-            news_list.append({"text": title + " " + desc, "published": published})
-        return news_list
-    except Exception as e:
-        print(f"Error fetching news for {query}: {e}")
-        return []
+# =========================
+# Indicators (pure pandas)
+# =========================
+def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
+    o, h, l, c, v = df["Open"], df["High"], df["Low"], df["Close"], df["Volume"]
 
-# -----------------------------
-# STEP 3: Sentiment Analysis (FinBERT)
-# -----------------------------
-sentiment_pipeline = pipeline("sentiment-analysis", model="ProsusAI/finbert")
+    # SMA / EMA
+    df["SMA"] = c.rolling(window=20, min_periods=20).mean()
+    df["EMA"] = c.ewm(span=20, adjust=False).mean()
 
-def analyze_sentiment(news_list):
-    if not news_list:
-        return pd.DataFrame(columns=["Sentiment", "Confidence", "Published"])
-    texts = [n["text"] for n in news_list[:5]]
-    results = sentiment_pipeline(texts)
-    df = pd.DataFrame(results).rename(columns={"label": "Sentiment", "score": "Confidence"})
-    df["Published"] = [n["published"] for n in news_list[:5]]
-    print(f"Sentiment Analysis Results:\n{df}")
+    # RSI (14)
+    delta = c.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    roll_up = gain.rolling(14, min_periods=14).mean()
+    roll_down = loss.rolling(14, min_periods=14).mean()
+    rs = roll_up / (roll_down.replace(0, np.nan))
+    df["RSI"] = 100 - (100 / (1 + rs))
+
+    # MACD (12,26,9)
+    ema12 = c.ewm(span=12, adjust=False).mean()
+    ema26 = c.ewm(span=26, adjust=False).mean()
+    macd = ema12 - ema26
+    signal = macd.ewm(span=9, adjust=False).mean()
+    df["MACD"] = macd - signal
+
+    # Drop warmup NaN rows
+    df = df.dropna().copy()
     return df
 
-# -----------------------------
-# STEP 3B: Summarize News (LLaMA)
-# -----------------------------
-def summarize_news_for_investor(news_list):
-    if not news_list:
-        return "No recent news."
-    combined_news = " ".join([n["text"] for n in news_list[:5]])
-    prompt = f"Summarize the following news for an investor in 2-3 sentences: {combined_news}"
-    try:
-        response = requests.post(
-            "http://localhost:11434/v1/chat/completions",
-            json={"model": "llama3", "messages": [{"role": "user", "content": prompt}]}
-        )
-        if response.status_code != 200:
-            return "Failed to generate summary."
-        summary = response.json()['choices'][0]['message']['content']
-        return summary
-    except Exception as e:
-        print(f"Error calling Ollama API: {e}")
-        return "Failed to generate summary."
+# =========================
+# Sentiment hook
+# =========================
+def get_sentiment_factor(ticker: str) -> float:
+    """
+    ใส่ logic ของคุณได้เลย (เช่น median ของคะแนนข่าวล่าสุด)
+    ค่าที่คืนกลับควรเล็ก ๆ ~ [-0.02, +0.02] เพื่อเป็น multiplicative tweak
+    ตอนนี้ใส่ค่า 0.0 เป็นค่าเริ่มต้น (กลาง ๆ) ไว้ก่อน
+    """
+    return 0.0
 
-# -----------------------------
-# STEP 4: Fetch Stock Data (OHLC + Volume)
-# -----------------------------
-def fetch_stock(ticker):
-    try:
-        data = yf.download(ticker, START_DATE, END_DATE, auto_adjust=True)
-        return data[["Open","High","Low","Close","Volume"]] if not data.empty else pd.DataFrame()
-    except Exception as e:
-        print(f"Error fetching stock data for {ticker}: {e}")
-        return pd.DataFrame()
+# =========================
+# Data preparation (no leakage)
+# =========================
+def make_splits_scaled(df: pd.DataFrame, lookback: int):
+    """
+    - แยก train/val/test ตามเวลา
+    - fit scaler เฉพาะ train แล้ว transform val/test (ป้องกัน leakage)
+    - สร้าง X,y sequences โดย y คือ 'Close' ที่ scale แล้ว
+    """
+    n = len(df)
+    n_test = int(n * TEST_RATIO)
+    n_val  = int(n * VAL_RATIO)
+    n_train = n - n_test - n_val
+    if n_train <= lookback + 5:
+        raise ValueError(f"Rows not enough after indicators. Need > {lookback+5}, got {n}.")
 
-# -----------------------------
-# STEP 5: LSTM Forecast (OHLC + Volume, Dropout, lookback=90)
-# -----------------------------
-def build_lstm_forecast(data, test_size=60):
-    if len(data) < 100:
-        return data['Close'].iloc[-1], [], []
+    feats = ["Open","High","Low","Close","Volume","RSI","EMA","SMA","MACD"]
+    data = df[feats].values.astype(np.float32)
 
+    # Split
+    train = data[:n_train]
+    val   = data[n_train:n_train+n_val]
+    test  = data[n_train+n_val:]
+
+    # Scale per feature with MinMax on TRAIN only
     scaler = MinMaxScaler(feature_range=(0,1))
-    scaled = scaler.fit_transform(data)
+    scaler.fit(train)
+    train_s = scaler.transform(train)
+    val_s   = scaler.transform(val)
+    test_s  = scaler.transform(test)
 
-    lookback = 90
-    X, y = [], []
-    for i in range(lookback, len(scaled)):
-        X.append(scaled[i-lookback:i])
-        y.append(scaled[i, 3])  # Close price as target
+    # Helper to create sequences
+    def to_seq(arr):
+        X, y = [], []
+        for i in range(lookback, len(arr)):
+            X.append(arr[i-lookback:i, :])      # all features in window
+            y.append(arr[i, 3])                 # index 3 = 'Close' (scaled)
+        return np.array(X), np.array(y)
 
-    X, y = np.array(X), np.array(y)
-    split = len(X) - test_size
-    X_train, X_test = X[:split], X[split:]
-    y_train, y_test = y[:split], y[split:]
+    X_train, y_train = to_seq(train_s)
+    X_val,   y_val   = to_seq(val_s)
+    X_test,  y_test  = to_seq(test_s)
 
-    model = Sequential()
-    model.add(Input(shape=(X.shape[1], X.shape[2])))
-    model.add(LSTM(128, return_sequences=True))
-    model.add(Dropout(0.2))
-    model.add(LSTM(64))
-    model.add(Dropout(0.2))
-    model.add(Dense(32, activation='relu'))
-    model.add(Dense(1))
-    model.compile(optimizer="adam", loss="mean_squared_error")
+    # For inverse transform later
+    # Build a helper that inverse only the Close column
+    def inverse_close(scaled_close_values: np.ndarray):
+        # Build an empty array to pass into scaler.inverse_transform
+        template = np.zeros((scaled_close_values.shape[0], train.shape[1]), dtype=np.float32)
+        template[:, 3] = scaled_close_values  # put close into its column index
+        inv = scaler.inverse_transform(template)
+        return inv[:, 3]
 
-    early_stop = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
-    model.fit(X_train, y_train, epochs=50, batch_size=32, validation_split=0.1, verbose=1, callbacks=[early_stop])
+    # Keep aligned dates for plotting
+    dates = df.index
+    dates_test = dates[n_train+n_val+lookback:]  # y_test timeline
 
-    # Predict test set
-    y_pred = model.predict(X_test, verbose=0)
-    y_pred_rescaled = scaler.inverse_transform(np.concatenate([np.zeros((len(y_pred),3)), y_pred, np.zeros((len(y_pred),1))], axis=1))[:,3]
-    y_test_rescaled = scaler.inverse_transform(np.concatenate([np.zeros((len(y_test),3)), y_test.reshape(-1,1), np.zeros((len(y_test),1))], axis=1))[:,3]
+    return (X_train, y_train, X_val, y_val, X_test, y_test,
+            scaler, inverse_close, dates_test)
 
-    # Predict next day
-    last_seq = scaled[-lookback:].reshape(1, lookback, X.shape[2])
-    next_pred = model.predict(last_seq, verbose=0)
-    next_pred_rescaled = scaler.inverse_transform(np.concatenate([np.zeros((1,3)), next_pred, np.zeros((1,1))], axis=1))[:,3]
+# =========================
+# Model
+# =========================
+def build_lstm(input_shape):
+    model = keras.Sequential([
+        layers.Input(shape=input_shape),
+        layers.LSTM(64, return_sequences=True),
+        layers.Dropout(0.2),
+        layers.LSTM(32),
+        layers.Dense(1)
+    ])
+    model.compile(optimizer=keras.optimizers.Adam(1e-3), loss="mse")
+    return model
 
-    return next_pred_rescaled[0], y_test_rescaled, y_pred_rescaled
+# =========================
+# Metrics
+# =========================
+def mape(y_true, y_pred):
+    y_true = np.asarray(y_true, dtype=np.float64)
+    y_pred = np.asarray(y_pred, dtype=np.float64)
+    eps = 1e-8
+    return np.mean(np.abs((y_true - y_pred) / (np.maximum(np.abs(y_true), eps)))) * 100.0
 
-# -----------------------------
-# STEP 6: Adaptive Sentiment Adjustment
-# -----------------------------
-def sentiment_factor_adaptive(sentiment_df, stock_volatility=0.02):
-    """
-    ปรับ sentiment factor อัตโนมัติตาม volatility ของหุ้น
-    - stock_volatility: ค่าความผันผวน (เช่น std ของ returns) ใช้ scale factor
-    """
-    if sentiment_df.empty:
-        return 0
-    factor_sum, weight_sum = 0, 0
-    now = datetime.datetime.now(datetime.timezone.utc)
-    for _, row in sentiment_df.iterrows():
-        conf, published = row['Confidence'], row['Published']
-        try: published_dt = datetime.datetime.fromisoformat(published.replace("Z","+00:00"))
-        except: published_dt = now
-        days_diff = max((now - published_dt).days,1)
-        weight = 1/(days_diff)
-        score = conf if row['Sentiment']=='positive' else -conf
-        factor_sum += weight * score
-        weight_sum += weight
+# =========================
+# Plot per ticker (show, not save)
+# =========================
+def plot_result(ticker, dates_test, actual_test, pred_raw_test, pred_adj_test, next_raw, next_adj, mape_val):
+    plt.figure(figsize=(12,6))
+    plt.plot(actual_test.index, actual_test.values, label="Actual")
+    plt.plot(dates_test, pred_raw_test, label="LSTM (Raw)")
+    plt.plot(dates_test, pred_adj_test, label="LSTM + Sentiment (Adjusted)", linestyle="--")
+    title = (f"{ticker} | Last={actual_test.values[-1]:.2f} | Next Raw={next_raw:.2f} | "
+             f"Next Adj={next_adj:.2f} | MAPE={mape_val:.2f}%")
+    plt.title(title)
+    plt.xlabel("Date"); plt.ylabel("Price")
+    plt.legend()
+    plt.tight_layout()
+    # โชว์ทันทีหลังเทรนเสร็จแต่ละตัว
+    plt.show()
 
-    raw_factor = (factor_sum/weight_sum) if weight_sum != 0 else 0
-    # scale factor according to volatility to avoid bias
-    adaptive_factor = np.tanh(raw_factor) * stock_volatility  # tanh limit factor between -stock_volatility ~ +stock_volatility
-    return adaptive_factor
+# =========================
+# Main per ticker
+# =========================
+def run_one(ticker: str):
+    print("\n" + "="*30 + f"\n📌 Processing {ticker} ...\n" + "="*30)
+    raw = yf.download(ticker, start=START, end=END, interval="1d", auto_adjust=False, progress=False)
+    if raw.empty:
+        print(f"[{ticker}] No OHLCV from yfinance, skip.")
+        return None
 
+    raw = raw[["Open","High","Low","Close","Volume"]].dropna()
+    df = add_indicators(raw)
 
-def adjust_forecast_with_sentiment(forecast, sentiment_df, stock_data=None):
-    # ใช้ volatility ของหุ้นจาก historical returns
-    if stock_data is not None and not stock_data.empty:
-        returns = stock_data['Close'].pct_change().dropna()
-        vol = returns.std()  # standard deviation of returns
-    else:
-        vol = 0.02  # default
-    factor = sentiment_factor_adaptive(sentiment_df, stock_volatility=vol)
-    return forecast*(1+factor), factor
+    # Prepare data
+    (X_tr, y_tr, X_val, y_val, X_te, y_te,
+     scaler, inv_close, dates_test) = make_splits_scaled(df, LOOKBACK)
 
+    # Build & fit
+    model = build_lstm(X_tr.shape[1:])
+    es = keras.callbacks.EarlyStopping(patience=8, restore_best_weights=True, monitor="val_loss")
+    hist = model.fit(
+        X_tr, y_tr,
+        validation_data=(X_val, y_val),
+        epochs=EPOCHS,
+        batch_size=BATCH_SIZE,
+        shuffle=False,
+        verbose=2,
+        callbacks=[es]
+    )
 
-# -----------------------------
-# STEP 6C: Generate Signal (fixed)
-# -----------------------------
-def generate_signal(last_price, forecast_price, threshold=0.02):
-    last_price = float(last_price)
-    forecast_price = float(forecast_price)
-    change = (forecast_price - last_price)/last_price
-    if change > threshold:
-        return "Buy"
-    elif change < -threshold:
-        return "Sell"
-    else:
-        return "Hold"
+    # Predict on TEST (scaled -> inverse to price)
+    yhat_te_s = model.predict(X_te, verbose=0).ravel()
+    yhat_te = inv_close(yhat_te_s)
+    y_true_te = inv_close(y_te)
 
-# -----------------------------
-# STEP 6D: Evaluate Forecast (MAPE)
-# -----------------------------
-def evaluate_forecast(actual, predicted):
-    return np.mean(np.abs((np.array(actual)-np.array(predicted))/np.array(actual)))*100
+    # Last window (for next-day forecast)
+    last_window = df[["Open","High","Low","Close","Volume","RSI","EMA","SMA","MACD"]].values[-LOOKBACK:]
+    last_window_s = scaler.transform(last_window)[None, ...]
+    next_raw_s = float(model.predict(last_window_s, verbose=0).ravel()[0])
+    next_raw = float(inv_close(np.array([next_raw_s]))[0])
 
-# -----------------------------
-# STEP 6: Pipeline for 7 stocks
-# -----------------------------
-all_insights, mape_before_list, mape_after_list = [], [], []
+    # Sentiment adjust
+    s_factor = get_sentiment_factor(ticker)  # e.g., +0.01 = +1%
+    yhat_te_adj = yhat_te * (1.0 + s_factor)
+    next_adj = next_raw * (1.0 + s_factor)
 
-for ticker in TICKERS:
-    print(f"\n==============================")
-    print(f"📌 Processing {ticker} ...")
-    print(f"==============================")
-    
-    news = fetch_news(ticker)
-    sentiment_df = analyze_sentiment(news)
-    news_summary = summarize_news_for_investor(news)
-    
-    stock_data = fetch_stock(ticker)
-    if stock_data.empty:
-        print(f"No stock data for {ticker}, skipping.")
-        continue
+    # MAPE on test (raw)
+    mape_test = mape(y_true_te, yhat_te)
 
-    last_price = float(stock_data['Close'].iloc[-1])
-    forecast_price, y_test, y_pred = build_lstm_forecast(stock_data)
-    forecast_adjusted, sentiment_factor = adjust_forecast_with_sentiment(forecast_price, sentiment_df)
-    signal = generate_signal(last_price, forecast_adjusted)
+    # Assemble actual series aligned with dates_test for plotting
+    actual_test_series = pd.Series(y_true_te, index=dates_test)
+    raw_series = pd.Series(yhat_te, index=dates_test)
+    adj_series = pd.Series(yhat_te_adj, index=dates_test)
 
-    if len(y_test)>0:
-        mape_before = evaluate_forecast(y_test, y_pred)
-        y_pred_adj = y_pred*(1+sentiment_factor)
-        mape_after = evaluate_forecast(y_test, y_pred_adj)
-    else: 
-        mape_before, mape_after = np.nan, np.nan
-
-    mape_before_list.append(mape_before)
-    mape_after_list.append(mape_after)
-    sentiment_summary = sentiment_df['Sentiment'].value_counts().to_dict() if not sentiment_df.empty else {}
-    
-    all_insights.append({
-        "Ticker": ticker,
-        "Last Price": last_price,
-        "Forecast Price": forecast_price,
-        "Forecast Adjusted": forecast_adjusted,
-        "Sentiment": sentiment_summary,
-        "Signal": signal,
-        "MAPE Test Set (%)": mape_before,
-        "MAPE Adjusted Test Set (%)": mape_after
-    })
-
-    # Rolling visualization
-    if len(y_test)>0:
-        plt.figure(figsize=(12,6))
-        plt.plot(y_test,label="Actual (Test)")
-        plt.plot(y_pred,label="Forecast (LSTM)")
-        plt.plot(y_pred_adj,label="Forecast Adjusted (Sentiment)")
-        plt.axhline(forecast_adjusted, color='orange', linestyle='--', label="Next Day Adjusted")
-        plt.title(f"{ticker} Stock Forecast vs Actual")
-        plt.xlabel("Days")
-        plt.ylabel("Price")
-        plt.legend()
-        plt.show()
-
-    # Print summary for each stock
     print(f"Ticker: {ticker}")
-    print(f"Last Price: {last_price:.2f}")
-    print(f"Forecast Price: {forecast_price:.2f}")
-    print(f"Forecast Adjusted: {forecast_adjusted:.2f} (Sentiment factor: {sentiment_factor:.4f})")
-    print(f"Signal: {signal}")
-    print(f"Sentiment Summary: {sentiment_summary}")
-    print(f"MAPE Test Set: {mape_before:.2f}%")
-    print(f"MAPE Adjusted: {mape_after:.2f}%")
-    print(f"News Summary: {news_summary}")
-    print("\n------------------------------\n")
+    print(f"Last Price: {actual_test_series.values[-1]:.2f}")
+    print(f"Forecast Price (next day) - Raw: {next_raw:.2f}")
+    print(f"Forecast Price (next day) - Adjusted: {next_adj:.2f} (sentiment factor={s_factor:+.4f})")
+    print(f"MAPE Test Set: {mape_test:.2f}%")
 
-# -----------------------------
-# STEP 7: Show Final Table
-# -----------------------------
-insight_df = pd.DataFrame(all_insights)
-print("\nFinal Insights Table for The Magnificent Seven:")
-print(insight_df)
-print(f"\nAverage MAPE Test Set: {np.nanmean(mape_before_list):.2f}%")
-print(f"Average MAPE Adjusted (Sentiment): {np.nanmean(mape_after_list):.2f}%")
+    # plot and show (no saving)
+    plot_result(
+        ticker=ticker,
+        dates_test=dates_test,
+        actual_test=actual_test_series,
+        pred_raw_test=raw_series,
+        pred_adj_test=adj_series,
+        next_raw=next_raw,
+        next_adj=next_adj,
+        mape_val=mape_test
+    )
+
+    return {
+        "ticker": ticker,
+        "last": float(actual_test_series.values[-1]),
+        "next_raw": float(next_raw),
+        "next_adj": float(next_adj),
+        "mape": float(mape_test),
+        "sentiment_factor": float(s_factor)
+    }
+
+# =========================
+# Entry
+# =========================
+def main():
+    results = []
+    for t in TICKERS:
+        try:
+            res = run_one(t)
+            if res: results.append(res)
+        except Exception as e:
+            print(f"[{t}] Error: {e}")
+
+    if results:
+        out = pd.DataFrame(results)
+        print("\nFinal Summary:")
+        print(out.to_string(index=False))
+        print(f"\nAverage MAPE Test Set: {out['mape'].mean():.2f}%")
+    else:
+        print("No results.")
+
+if __name__ == "__main__":
+    main()
