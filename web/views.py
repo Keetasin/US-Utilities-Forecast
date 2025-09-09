@@ -1,5 +1,5 @@
 from flask import Blueprint, render_template, request
-from . import db
+from . import db, cache # เพิ่ม cache ที่นี่
 from .models import Stock, StockNews
 from .stock_utils import TICKERS, fetch_and_update_stock, update_stock_data
 from .news_utils import fetch_news, summarize_news_for_investor
@@ -52,6 +52,7 @@ def news(symbol):
 
 
 @views.route('/forecasting/<symbol>')
+@cache.cached(query_string=True) # เพิ่มบรรทัดนี้
 def forecasting(symbol):
     model = (request.args.get("model") or "arima").lower()
     try:
@@ -82,6 +83,7 @@ def forecasting(symbol):
         return render_template("forecasting.html", has_data=False, symbol=symbol, model=model.upper(), error=str(e))
 
 @views.route('/compare/<symbol>')
+@cache.cached()  # เพิ่มบรรทัดนี้
 def compare_models(symbol):
     results = {}
     historical = None
@@ -131,4 +133,3 @@ def compare_models(symbol):
         best_model=best_model,
         best_mae=best_mae
     )
-
