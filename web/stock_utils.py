@@ -28,9 +28,9 @@ def fetch_and_update_stock(ticker):
 
 def update_stock_data(app, force=False):
     with app.app_context():
-        now_utc = datetime.now(timezone.utc)
-        market_open = time(9, 30)
-        market_close = time(16, 0)
+        now_utc = datetime.now(pytz.UTC)
+        market_open = time(9,30)
+        market_close = time(16,0)
         update_allowed = force or (market_open <= now_utc.time() <= market_close)
 
         for t in TICKERS:

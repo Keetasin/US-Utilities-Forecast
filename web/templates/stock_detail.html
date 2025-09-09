@@ -5,7 +5,7 @@
 {% block content %}
 <link rel="stylesheet" href="{{ url_for('static', filename='style/stock_detail.css') }}">
 
-<h2 class="title">{{ stock.symbol }} - Stock Chart</h2>
+<h2 class="title">{{ stock.symbol }}</h2>
 
 <a class="back-link" href="{{ url_for('views.news', symbol=stock.symbol) }}">News</a>
 <a class="back-link" href="{{ url_for('views.forecasting', symbol=stock.symbol) }}">Forecasting</a>

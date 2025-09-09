@@ -5,13 +5,29 @@
 {% block content %}
 <link rel="stylesheet" href="{{ url_for('static', filename='style/heatmap.css') }}">
 
-<h2 class="title">Magnificent 7 - Stock Heatmap</h2>
+<h2 class="title">Stock Heatmap</h2>
 
 <!-- Legend -->
 <div class="legend">
     <span>-3%</span>
     <div class="legend-bar"></div>
     <span>3%</span>
+</div>
+
+<!-- Heatmap Grid -->
+<div class="grid-container">
+    {% for stock in data %}
+    <a href="{{ url_for('views.stock_detail', symbol=stock.symbol) }}">
+        <div class="stock-card 
+            {% if stock.change >= 0 %}positive{% else %}negative{% endif %}" 
+            style="background-color: {{ stock.bg_color }};"
+            data-tooltip="{{ stock.symbol }}">
+            <h3>{{ stock.symbol }}</h3>
+            <p class="price">${{ stock.price }}</p>
+            <p class="change">{{ stock.change }}%</p>
+        </div>
+    </a>
+    {% endfor %}
 </div>
 
 {% if last_updated %}
@@ -22,19 +38,4 @@
   <p class="last-updated">Last updated: N/A</p>
 {% endif %}
 
-<!-- Heatmap Grid -->
-<div class="grid-container">
-    {% for stock in data %}
-    <a href="{{ url_for('views.stock_detail', symbol=stock.symbol) }}">
-        <div class="stock-card 
-            {% if stock.change >= 0 %}positive{% else %}negative{% endif %}" 
-            style="background-color: {{ stock.bg_color }};"
-            data-tooltip="Price: ${{ stock.price }} | Change: {{ stock.change }}% | MarketCap: {{ stock.marketCap|int }}">
-            <h3>{{ stock.symbol }}</h3>
-            <p class="price">${{ stock.price }}</p>
-            <p class="change">{{ stock.change }}%</p>
-        </div>
-    </a>
-    {% endfor %}
-</div>
 {% endblock %}

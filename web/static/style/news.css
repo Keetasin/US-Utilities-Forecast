@@ -106,3 +106,6 @@ body::before {
     color: #aaa;
     margin-top: 8px;
 }
+
+
+.news-info { margin-top:20px; font-size:12px; color:#888; }

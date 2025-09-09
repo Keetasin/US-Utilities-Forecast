@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, request
 from . import db
-from .models import Stock
+from .models import Stock, StockNews
 from .stock_utils import TICKERS, fetch_and_update_stock, update_stock_data
 from .news_utils import fetch_news, summarize_news_for_investor
 from .forecast_utils import (ensure_datetime_freq, series_to_chart_pairs_safe,
@@ -23,9 +23,13 @@ def heatmap():
     if data:
         last_updated_utc = max([s.last_updated for s in data if s.last_updated])
         if last_updated_utc:
+            # แปลงให้ timezone-aware ก่อน
+            if last_updated_utc.tzinfo is None:
+                last_updated_utc = last_updated_utc.replace(tzinfo=pytz.UTC)
             tz_th = pytz.timezone("Asia/Bangkok")
             last_updated = last_updated_utc.astimezone(tz_th).replace(microsecond=0)
             last_updated_str = last_updated.strftime("%H:%M:%S %Y-%m-%d")
+
     return render_template("heatmap.html", data=data, last_updated=last_updated_str)
 
 @views.route('/stock/<symbol>')
@@ -34,11 +38,18 @@ def stock_detail(symbol):
     if not stock: return "Stock not found", 404
     return render_template("stock_detail.html", stock=stock)
 
+
 @views.route('/news/<symbol>')
 def news(symbol):
-    news_list = fetch_news(symbol)
-    summary = summarize_news_for_investor(news_list)
+    sn = StockNews.query.filter_by(symbol=symbol).first()
+    if sn:
+        news_list = sn.news_json
+        summary = sn.summary
+    else:
+        news_list = []
+        summary = "No news yet. Will update at 20:00."
     return render_template("news.html", symbol=symbol, news=news_list[:5], summary=summary)
+
 
 @views.route('/forecasting/<symbol>')
 def forecasting(symbol):
