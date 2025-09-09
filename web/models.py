@@ -8,3 +8,4 @@ class Stock(db.Model):
     change = db.Column(db.Float, nullable=False)
     marketCap = db.Column(db.Float, nullable=False)
     bg_color = db.Column(db.String(50), nullable=False)
+    last_updated = db.Column(db.DateTime, nullable=True) 

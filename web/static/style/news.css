@@ -1,0 +1,108 @@
+/* ---------------------------- */
+/* Base & Dark Mode */
+body {
+    margin: 0;
+    padding: 0;
+    font-family: 'Segoe UI', sans-serif;
+    background: #0b0c10;
+    color: #fff;
+    text-align: center;
+    overflow-x: hidden;
+}
+
+/* Animated floating particles background */
+body::before {
+    content: '';
+    position: fixed;
+    top:0; left:0; width:100%; height:100%;
+    background: radial-gradient(circle, rgba(0,255,255,0.05) 1px, transparent 1px);
+    background-size: 50px 50px;
+    z-index: 0;
+    animation: moveParticles 30s linear infinite;
+}
+@keyframes moveParticles {
+    from { background-position: 0 0; }
+    to { background-position: 1000px 1000px; }
+}
+
+/* Title */
+.title {
+    font-size: 32px;
+    margin: 20px 0;
+    color: #00e5ff;
+    position: relative;
+    z-index: 1;
+}
+
+/* Back Links */
+.back-link {
+    display: inline-block;
+    margin: 10px;
+    padding: 10px 20px;
+    border-radius: 10px;
+    background: #00e5ff;
+    color: #0b0c10;
+    font-weight: bold;
+    text-decoration: none;
+    transition: transform 0.2s, box-shadow 0.2s;
+    z-index: 1;
+    position: relative;
+}
+.back-link:hover {
+    transform: scale(1.05);
+    box-shadow: 0 0 15px #00e5ff;
+}
+
+/* Summary Section */
+.summary {
+    max-width: 800px;
+    margin: 30px auto;
+    padding: 20px 25px;
+    background: rgba(20, 20, 20, 0.85);
+    border-radius: 16px;
+    box-shadow: 0 0 20px rgba(0,255,255,0.4);
+    text-align: left;
+    position: relative;
+    z-index: 1;
+}
+.summary h3 {
+    margin-bottom: 10px;
+    color: #00e5ff;
+}
+.summary p {
+    font-size: 16px;
+    line-height: 1.6;
+}
+
+/* News List */
+.news-list {
+    max-width: 800px;
+    margin: 0 auto 50px;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    z-index: 1;
+    position: relative;
+}
+.news-item {
+    padding: 15px 20px;
+    background: rgba(25, 25, 25, 0.8);
+    border-left: 5px solid #00e5ff;
+    border-radius: 12px;
+    text-align: left;
+    box-shadow: 0 0 10px rgba(0,255,255,0.2);
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+.news-item:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 0 20px rgba(0,255,255,0.4);
+}
+.news-item p {
+    margin: 5px 0;
+    font-size: 15px;
+}
+.news-item .date {
+    font-size: 13px;
+    color: #aaa;
+    margin-top: 8px;
+}

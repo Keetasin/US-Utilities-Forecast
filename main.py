@@ -1,5 +1,6 @@
 from web import create_app, db
-from web.views import initialize_stocks, start_scheduler
+from web.stock_utils import initialize_stocks
+from web.scheduler import start_scheduler
 
 app = create_app()
 initialize_stocks(app)

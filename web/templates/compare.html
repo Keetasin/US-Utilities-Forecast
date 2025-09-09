@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}Compare Models — {{ symbol }}{% endblock %}
+
+{% block content %}
+<style>
+.card { background:#111; color:#fff; border-radius:16px; padding:16px; margin:16px 0; box-shadow:0 0 15px rgba(0,255,255,0.15); }
+.table { width:100%; border-collapse:collapse; }
+.table th, .table td { padding:10px 12px; border-bottom:1px solid #333; text-align:left; color:#ddd; }
+.badge { padding:4px 10px; border-radius:999px; font-weight:700; }
+.badge-best { background:#00ff9d; color:#000; }
+.badge-warn { background:#ffcc00; color:#000; }
+.toolbar { margin: 10px 0 20px; display:flex; gap:10px; align-items:center; }
+.btn { padding:8px 12px; border-radius:10px; border:1px solid #444; background:#111; color:#fff; text-decoration:none; }
+.btn-primary { background:#00d1ff; color:#000; border: none; font-weight:700; }
+</style>
+
+<h2 class="title">Compare Models — {{ symbol }}</h2>
+
+<div class="toolbar">
+  <a class="btn" href="{{ url_for('views.forecasting', symbol=symbol, model='arima') }}">ARIMA</a>
+  <a class="btn" href="{{ url_for('views.forecasting', symbol=symbol, model='sarima') }}">SARIMA</a>
+  <a class="btn" href="{{ url_for('views.forecasting', symbol=symbol, model='lstm') }}">LSTM</a>
+</div>
+
+<div class="card">
+  <p><strong>Last Price:</strong> ${{ last_price }}</p>
+  {% if best_model %}
+    <p><strong>Best (lowest MAE):</strong> <span class="badge badge-best">{{ best_model }}</span> — ${{ best_mae | round(2) }}</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Model</th>
+        <th>Period</th>
+        <th>Backtest MAE (7d)</th>
+        <th>7-Day Forecast (last)</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for m in ['arima','sarima','lstm'] %}
+        <tr>
+          <td>{{ m.upper() }}</td>
+          <td>{{ results[m].period if results[m].ok else '-' }}</td>
+          <td>
+            {% if results[m].ok %} ${{ results[m].backtest_mae | round(2) }}
+            {% else %} - {% endif %}
+          </td>
+            <td>
+            {% if results[m].ok %}
+                ${{ results[m].backtest_mae | round(2) }}
+                (<span style="opacity:.8;">~{{ results[m].backtest_mae_pct | round(2) }}%</span>)
+            {% else %} - {% endif %}
+            </td>
+          <td>
+            {% if results[m].ok %}
+              {% if best_model == m.upper() %}
+                <span class="badge badge-best">BEST</span>
+              {% else %}
+                ✓
+              {% endif %}
+            {% else %}
+              <span class="badge badge-warn" title="{{ results[m].error }}">ERR</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h3 style="margin:0 0 10px;">Chart</h3>
+  <div style="position:relative; width:95%; max-width:1200px;">
+    <canvas id="cmpChart"></canvas>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  const ctx = document.getElementById('cmpChart');
+  const historical = {{ historical | tojson }};
+  const r = {{ results | tojson }};
+
+  const histLabels = historical.map(d => d.date);
+  const histPrices = historical.map(d => d.price);
+
+  // เอาวันสุดท้ายของ historical ไว้เป็นจุดแบ่ง
+  const baseLen = histPrices.length;
+
+  // สร้าง labels อนาคตจากโมเดลแรกที่ ok
+  function pickFutureLabels() {
+    for (const k of ['arima','sarima','lstm']) {
+      if (r[k] && r[k].ok) return r[k].forecast.map(d=>d.date);
+    }
+    return [];
+  }
+  const futureLabels = pickFutureLabels();
+  const allLabels = histLabels.concat(futureLabels);
+
+  function padForecast(modelKey) {
+    if (!r[modelKey] || !r[modelKey].ok) return Array(baseLen).fill(null);
+    const vals = r[modelKey].forecast.map(d=>d.price);
+    return Array(baseLen).fill(null).concat(vals);
+  }
+
+  const arimaF = padForecast('arima');
+  const sarimaF = padForecast('sarima');
+  const lstmF  = padForecast('lstm');
+
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: allLabels,
+      datasets: [
+        { label: 'Historical', data: histPrices,
+          borderColor:'rgb(0,229,255)', borderWidth:2, pointRadius:0, tension:0.1 },
+        { label: 'ARIMA Forecast', data: arimaF,
+          borderColor:'rgb(255,204,0)', borderDash:[6,6], borderWidth:2, pointRadius:2 },
+        { label: 'SARIMA Forecast', data: sarimaF,
+          borderColor:'rgb(0,255,132)', borderDash:[6,6], borderWidth:2, pointRadius:2 },
+        { label: 'LSTM Forecast', data: lstmF,
+          borderColor:'rgb(255,99,132)', borderDash:[6,6], borderWidth:2, pointRadius:2 },
+      ]
+    },
+    options: {
+      scales: {
+        y: { beginAtZero:false, grid:{color:'rgba(255,255,255,0.1)'}, ticks:{color:'#fff'} },
+        x: { grid:{color:'rgba(255,255,255,0.1)'}, ticks:{color:'#fff'} }
+      },
+      plugins: { legend:{ labels:{ color:'#fff' } } }
+    }
+  });
+</script>
+{% endblock %}

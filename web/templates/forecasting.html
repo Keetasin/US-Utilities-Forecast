@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-
 {% block title %}Stock Forecasting{% endblock %}
 
 {% block content %}
@@ -8,77 +7,114 @@
 .summary-box { display:inline-block; padding:15px 25px; margin-bottom:20px; border-radius:16px; background:rgba(20,20,20,0.8); box-shadow:0 0 15px rgba(0,255,255,0.4); font-size:16px; font-weight:600; }
 .summary-box p { margin:5px 0; }
 .disclaimer { margin-top:20px; font-size:12px; color:#888; }
+.model-switch { margin: 10px 0 25px; }
+.model-switch a { margin-right: 10px; padding:8px 12px; border-radius:10px; background:#0e1b22; color:#cfefff; text-decoration:none; border:1px solid #0ff3; }
+.model-switch a.active { background:#00e5ff22; border-color:#00e5ff; }
 </style>
 
 <h2 class="title">Stock Price Forecasting</h2>
 
+{% if symbol %}
+  <h3 class="title" style="font-size:28px;">{{ symbol }} — {{ model or 'ARIMA' }}</h3>
+
+  <!-- ปุ่มสลับโมเดล และเปรียบเทียบ -->
+  <div class="model-switch">
+    <a href="{{ url_for('views.forecasting', symbol=symbol, model='arima') }}" class="{{ 'active' if model=='ARIMA' else '' }}">ARIMA</a>
+    <a href="{{ url_for('views.forecasting', symbol=symbol, model='sarima') }}" class="{{ 'active' if model=='SARIMA' else '' }}">SARIMA</a>
+    <a href="{{ url_for('views.forecasting', symbol=symbol, model='lstm') }}" class="{{ 'active' if model=='LSTM' else '' }}">LSTM</a>
+    <a href="{{ url_for('views.compare_models', symbol=symbol) }}" style="margin-left:10px;">🔀 Compare 3 Models</a>
+  </div>
+{% endif %}
+
+{% if error %}
+  <div class="summary-box" style="background:#401818;">
+    <p>⚠️ {{ error }}</p>
+    <p>Tip: ลองเปลี่ยนโมเดลหรือช่วงเวลาโดยกดปุ่มด้านบน</p>
+  </div>
+{% endif %}
+
 {% if has_data %}
-    <h3 class="title" style="font-size:28px;">{{ symbol }}</h3>
-
     <div class="summary-box">
-        <p>Last Price: ${{ historical[-1].price }}</p>
-        <p>7-Day Forecast: ${{ forecast[-1].price }}</p>
-        <p>Trend: {{ trend.icon }} {{ trend.direction }}</p>
-        <hr style="border-color:#444;">
-        <p>Backtest Error (MAE): ${{ backtest_mae | round(2) }}</p>
+    <p>Last Price: ${{ last_price }}</p>
+    <p>7-Day Forecast: ${{ forecast[-1].price }}</p>
+    <p>Trend: {{ trend.icon }} {{ trend.direction }}</p>
+    <hr style="border-color:#444;">
+    <p>
+        Backtest Error (MAE):
+        ${{ backtest_mae | round(2) }}
+        (~{{ backtest_mae_pct | round(2) }}%)
+    </p>
     </div>
 
-    <div class="chart-container" style="position:relative; width:80%; max-width:900px; margin:auto;">
-        <canvas id="forecastChart"></canvas>
-    </div>
 
-    <p class="disclaimer">This is a statistical forecast, not financial advice.</p>
+  <div class="chart-container" style="position:relative; width:80%; max-width:900px; margin:auto;">
+    <canvas id="forecastChart"></canvas>
+  </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script>
-        const ctx = document.getElementById('forecastChart');
-        const historicalData = {{ historical | tojson }};
-        const forecastData = {{ forecast | tojson }};
-        const backtestData = {{ backtest | tojson }};
-        const historicalLabels = historicalData.map(d=>d.date);
-        const futureLabels = forecastData.map(d=>d.date);
-        const allLabels = historicalLabels.concat(futureLabels);
-        const historicalPrices = historicalData.map(d=>d.price);
-        const backtestPrices = Array(historicalPrices.length-7).fill(null).concat(backtestData.map(d=>d.price));
-        const forecastPrices = Array(historicalPrices.length).fill(null).concat(forecastData.map(d=>d.price));
+  <p class="disclaimer">This is a statistical forecast, not financial advice.</p>
 
-        new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: allLabels,
-                datasets: [{
-                    label: 'Historical Price',
-                    data: historicalPrices,
-                    borderColor: 'rgb(0, 229, 255)',
-                    borderWidth: 2,
-                    pointRadius: 1,
-                    tension: 0.1
-                },{
-                    label: 'Backtest Validation',
-                    data: backtestPrices,
-                    borderColor: 'rgb(0, 255, 132)',
-                    borderDash:[5,5],
-                    borderWidth:2,
-                    pointRadius:2
-                },{
-                    label: 'Future Forecast',
-                    data: forecastPrices,
-                    borderColor: 'rgb(255, 204, 0)',
-                    borderDash:[5,5],
-                    borderWidth:2,
-                    pointRadius:2
-                }]
-            },
-            options: {
-                scales: {
-                    y: { beginAtZero:false, grid:{color:'rgba(255,255,255,0.1)'}, ticks:{color:'#fff'} },
-                    x: { grid:{color:'rgba(255,255,255,0.1)'}, ticks:{color:'#fff'} }
-                },
-                plugins: { legend:{ labels:{ color:'#fff' } } }
-            }
-        });
-    </script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    const ctx = document.getElementById('forecastChart');
+    const historicalData = {{ historical | tojson }};
+    const forecastData   = {{ forecast   | tojson }};
+    const backtestData   = {{ backtest   | tojson }};
+
+    const historicalLabels = historicalData.map(d=>d.date);
+    const futureLabels     = forecastData.map(d=>d.date);
+    const allLabels        = historicalLabels.concat(futureLabels);
+
+    const historicalPrices = historicalData.map(d=>d.price);
+    const backtestPrices   = Array(Math.max(historicalPrices.length - backtestData.length, 0)).fill(null)
+                              .concat(backtestData.map(d=>d.price));
+    const forecastPrices   = Array(historicalPrices.length).fill(null)
+                              .concat(forecastData.map(d=>d.price));
+
+    new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: allLabels,
+        datasets: [
+          {
+            label: 'Historical Price',
+            data: historicalPrices,
+            borderColor: 'rgb(0, 229, 255)',
+            borderWidth: 2,
+            pointRadius: 1,
+            tension: 0.1
+          },
+          {
+            label: 'Backtest (last 7)',
+            data: backtestPrices,
+            borderColor: 'rgb(0, 255, 132)',
+            borderDash:[5,5],
+            borderWidth:2,
+            pointRadius:2
+          },
+          {
+            label: 'Future Forecast (next 7)',
+            data: forecastPrices,
+            borderColor: 'rgb(255, 204, 0)',
+            borderDash:[5,5],
+            borderWidth:2,
+            pointRadius:2
+          }
+        ]
+      },
+      options: {
+        scales: {
+          y: { beginAtZero:false, grid:{color:'rgba(255,255,255,0.1)'}, ticks:{color:'#fff'} },
+          x: { grid:{color:'rgba(255,255,255,0.1)'}, ticks:{color:'#fff'} }
+        },
+        plugins: { legend:{ labels:{ color:'#fff' } } }
+      }
+    });
+  </script>
 {% else %}
-    <h3 class="title" style="margin-top:50px;">Please select a stock to see the forecast.</h3>
+  {% if symbol %}
+    <p class="disclaimer">No data to show for {{ symbol }} — try another model above.</p>
+  {% else %}
+    <h3 class="title" style="margin-top:50px;">Open from the heatmap to choose a stock.</h3>
+  {% endif %}
 {% endif %}
 {% endblock %}

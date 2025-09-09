@@ -1,167 +1,123 @@
-from flask import Blueprint, render_template
+from flask import Blueprint, render_template, request
 from . import db
 from .models import Stock
+from .stock_utils import TICKERS, fetch_and_update_stock, update_stock_data
+from .news_utils import fetch_news, summarize_news_for_investor
+from .forecast_utils import (ensure_datetime_freq, series_to_chart_pairs_safe,
+                             get_period_by_model, backtest_last_n_days,
+                             future_forecast, to_scalar)
+
 import yfinance as yf
-from apscheduler.schedulers.background import BackgroundScheduler
-from datetime import datetime, time, timedelta
 import pytz
-import pandas as pd
-from statsmodels.tsa.arima.model import ARIMA
-from sklearn.metrics import mean_absolute_error
 
 views = Blueprint('views', __name__)
 
-TICKERS = ["AAPL", "MSFT", "AMZN", "GOOGL", "META", "NVDA", "TSLA"]
-
-# -----------------------------
-# Fetch stock info
-def fetch_and_update_stock(t):
-    stock = yf.Ticker(t)
-    # ดึง history 1 วันล่าสุด พร้อม auto_adjust=True
-    info = stock.history(period="1d", interval="1m", auto_adjust=True)
-
-    if len(info) >= 1:
-        close = info["Close"].iloc[-1]        # ราคาล่าสุด
-        prev_close = stock.info.get("previousClose", None)  # ราคาปิดเมื่อวาน
-
-        if prev_close:
-            change_pct = ((close - prev_close) / prev_close) * 100
-        else:
-            open_price = info["Open"].iloc[0]  # ถ้าไม่มี previousClose ใช้ราคาเปิดวันแทน
-            change_pct = ((close - open_price) / open_price) * 100
-
-        cap = stock.info.get("marketCap", 0)
-
-        intensity = min(abs(change_pct), 3) / 3
-        lightness = 50 - intensity * 30
-        hue = 120 if change_pct >= 0 else 0
-        bg_color = f"hsl({hue}, 80%, {lightness}%)"
-
-        print(f"[{t}] Price={close:.2f}, Change={change_pct:.2f}%")
-
-        return round(close, 2), round(change_pct, 2), cap, bg_color
-
-    return None, None, None, None
-
-
-def update_stock_data(app, force=False):
-    """อัปเดตข้อมูลหุ้น (ต้องส่ง app มาเพื่อใช้ context)"""
-    with app.app_context():
-        tz = pytz.timezone("US/Eastern")
-        now = datetime.now(tz)
-        market_open = time(9, 30)
-        market_close = time(16, 0)
-
-        # อัปเดตได้ทุกครั้งถ้า force=True หรือช่วงตลาดเปิด
-        update_allowed = force or (market_open <= now.time() <= market_close)
-
-        for t in TICKERS:
-            s = Stock.query.filter_by(symbol=t).first()
-            if not s:
-                s = Stock(symbol=t, price=0.0, change=0.0, marketCap=0, bg_color="hsl(0,0%,50%)")
-                db.session.add(s)
-                db.session.commit()
-
-            if update_allowed:
-                price, change, cap, bg_color = fetch_and_update_stock(t)
-                if price is not None:
-                    s.price = price
-                    s.change = change
-                    s.marketCap = cap
-                    s.bg_color = bg_color
-
-        db.session.commit()
-        print(f"[{now}] Stock data updated (force={force})")
-
-
-def initialize_stocks(app):
-    """ตรวจสอบ DB ตอนรันครั้งแรก ถ้าว่าง ให้ fetch ข้อมูลทันที"""
-    with app.app_context():
-        if Stock.query.count() == 0:
-            print("DB empty. Fetching initial stock data...")
-            update_stock_data(app, force=True)
-        else:
-            print("DB already has stock data.")
-
-
-# -----------------------------
-# Scheduler
-scheduler = BackgroundScheduler()
-
-def start_scheduler(app):
-    """เริ่ม scheduler พร้อม app context"""
-    # อัปเดตทุก 1 นาที แม้ตลาดปิด
-    scheduler.add_job(func=lambda: update_stock_data(app, force=True), trigger="interval", minutes=1)
-    scheduler.start()
-    print("Scheduler started ✅")
-
-
-# -----------------------------
-# Routes
 @views.route('/')
 def home():
     return render_template('home.html')
 
-
 @views.route('/heatmap')
 def heatmap():
     data = Stock.query.order_by(Stock.marketCap.desc()).all()
-    return render_template("heatmap.html", data=data)
-
+    last_updated_str = None
+    if data:
+        last_updated_utc = max([s.last_updated for s in data if s.last_updated])
+        if last_updated_utc:
+            tz_th = pytz.timezone("Asia/Bangkok")
+            last_updated = last_updated_utc.astimezone(tz_th).replace(microsecond=0)
+            last_updated_str = last_updated.strftime("%H:%M:%S %Y-%m-%d")
+    return render_template("heatmap.html", data=data, last_updated=last_updated_str)
 
 @views.route('/stock/<symbol>')
 def stock_detail(symbol):
     stock = Stock.query.filter_by(symbol=symbol).first()
-    if not stock:
-        return "Stock not found", 404
+    if not stock: return "Stock not found", 404
     return render_template("stock_detail.html", stock=stock)
 
+@views.route('/news/<symbol>')
+def news(symbol):
+    news_list = fetch_news(symbol)
+    summary = summarize_news_for_investor(news_list)
+    return render_template("news.html", symbol=symbol, news=news_list[:5], summary=summary)
 
 @views.route('/forecasting/<symbol>')
-def forecasting(symbol=None):
-    if not symbol:
-        return render_template("forecasting.html", has_data=False, tickers=TICKERS)
-
+def forecasting(symbol):
+    model = (request.args.get("model") or "arima").lower()
     try:
-        # ใช้ Close ราคาปรับแล้ว (Adjusted Close)
-        full_hist_data = yf.download(symbol, period="2y", progress=False, auto_adjust=True)['Close']
-
-        # Backtest 7 วันสุดท้าย
-        train_data = full_hist_data[:-7]
-        backtest_model = ARIMA(train_data, order=(5,1,0)).fit()
-        backtest_forecast_result = backtest_model.forecast(steps=7)
-        backtest_dates = full_hist_data.index[-7:]
-        backtest_mae = mean_absolute_error(full_hist_data[-7:].values, backtest_forecast_result.values)
-        backtest_data = [{"date": d.strftime('%Y-%m-%d'), "price": round(float(p),2)}
-                         for d, p in zip(backtest_dates, backtest_forecast_result.values)]
-
-        # Future forecast 7 วัน
-        final_model = ARIMA(full_hist_data, order=(5,1,0)).fit()
-        future_forecast_result = final_model.forecast(steps=7)
-        last_date = full_hist_data.index[-1]
-        future_dates = [last_date + timedelta(days=i) for i in range(1,8)]
-        future_forecast_data = [{"date": d.strftime('%Y-%m-%d'), "price": round(float(p),2)}
-                                for d,p in zip(future_dates, future_forecast_result.values)]
-
-        # Historical 90 วันล่าสุด
-        hist_data_for_chart = full_hist_data.tail(90)
-        historical_data = [{"date": d.strftime('%Y-%m-%d'), "price": round(float(p),2)}
-                           for d,p in zip(hist_data_for_chart.index, hist_data_for_chart.values)]
-
-        trend_direction = "Up" if future_forecast_data[-1]['price'] > historical_data[-1]['price'] else "Down"
-        trend_icon = "🔼" if trend_direction == "Up" else "🔽"
-        trend_info = {"direction": trend_direction, "icon": trend_icon}
-
+        period = get_period_by_model(model)
+        full_close = yf.download(symbol, period=period, progress=False, auto_adjust=True)['Close'].dropna()
+        full_close = ensure_datetime_freq(full_close)
+        if len(full_close) < 70:
+            return render_template("forecasting.html", has_data=False, symbol=symbol,
+                                   model=model.upper(), error=f"Not enough data ({len(full_close)} rows)")
+        back_fc, back_mae = backtest_last_n_days(full_close, model_name=model, steps=7)
+        future_fc = future_forecast(full_close, model_name=model, steps=7)
+        hist = full_close.tail(90)
+        last_price_val = to_scalar(hist.iloc[-1])
+        back_mae_pct = (to_scalar(back_mae)/last_price_val*100.0) if last_price_val else 0.0
         return render_template("forecasting.html",
-                               symbol=symbol,
-                               forecast=future_forecast_data,
-                               historical=historical_data,
-                               backtest=backtest_data,
-                               backtest_mae=backtest_mae,
+                               symbol=symbol, model=model.upper(),
+                               forecast=series_to_chart_pairs_safe(future_fc),
+                               historical=series_to_chart_pairs_safe(hist),
+                               backtest=series_to_chart_pairs_safe(back_fc),
+                               backtest_mae=to_scalar(back_mae),
+                               backtest_mae_pct=back_mae_pct,
                                has_data=True,
-                               tickers=TICKERS,
-                               trend=trend_info)
-
+                               trend={"direction":"Up" if to_scalar(future_fc.iloc[-1])>last_price_val else "Down",
+                                      "icon":"🔼" if to_scalar(future_fc.iloc[-1]) > last_price_val else "🔽"},
+                               last_price=round(last_price_val,2)
+                               )
     except Exception as e:
-        print(f"Forecast error for {symbol}: {e}")
-        return str(e), 500
+        return render_template("forecasting.html", has_data=False, symbol=symbol, model=model.upper(), error=str(e))
+
+@views.route('/compare/<symbol>')
+def compare_models(symbol):
+    results = {}
+    historical = None
+    last_price = None
+    models = ["arima", "sarima", "lstm"]
+    try:
+        long_close = yf.download(symbol, period="10y", progress=False, auto_adjust=True)['Close'].dropna()
+        long_close = ensure_datetime_freq(long_close)
+        historical = series_to_chart_pairs_safe(long_close.tail(120))
+        last_price = round(to_scalar(long_close.iloc[-1]),2)
+    except Exception as e:
+        print("Error fetching long history:", e)
+    for m in models:
+        try:
+            period = get_period_by_model(m)
+            s = yf.download(symbol, period=period, progress=False, auto_adjust=True)['Close'].dropna()
+            s = ensure_datetime_freq(s)
+            if len(s) < 70:
+                results[m] = {"ok": False, "error": f"Not enough data ({len(s)} rows) for {m.upper()} period={period}"}
+                continue
+            back_fc, back_mae = backtest_last_n_days(s, model_name=m, steps=7)
+            fut_fc = future_forecast(s, model_name=m, steps=7)
+            last_p = to_scalar(s.iloc[-1]) if len(s) else 0.0
+            mae_pct = (to_scalar(back_mae) / last_p * 100.0) if last_p else 0.0
+            results[m] = {
+                "ok": True,
+                "period": period,
+                "backtest_mae": to_scalar(back_mae),
+                "backtest_mae_pct": mae_pct,
+                "forecast": series_to_chart_pairs_safe(fut_fc),
+                "forecast_last": round(to_scalar(fut_fc.iloc[-1]),2)
+            }
+        except Exception as e:
+            results[m] = {"ok": False, "error": str(e)}
+    best_model, best_mae = None, None
+    for m in models:
+        if results.get(m, {}).get("ok"):
+            mae = to_scalar(results[m]["backtest_mae"])
+            if (best_mae is None) or (mae < best_mae):
+                best_mae, best_model = mae, m.upper()
+    return render_template(
+        "compare.html",
+        symbol=symbol,
+        historical=historical,
+        last_price=last_price,
+        results=results,
+        best_model=best_model,
+        best_mae=best_mae
+    )
+

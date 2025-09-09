@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block title %}{{ symbol }} News{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='style/news.css') }}">
+
+<h2 class="title">{{ symbol }} - Latest News</h2>
+
+<a class="back-link" href="{{ url_for('views.heatmap') }}">Heatmap</a>
+<a class="back-link" href="{{ url_for('views.forecasting', symbol=symbol) }}">Forecasting</a>
+<a class="back-link" href="{{ url_for('views.stock_detail', symbol=symbol) }}">Stock Detail</a>
+
+<div class="summary">
+    <h3>Investor Summary</h3>
+    <p>{{ summary }}</p>
+</div>
+
+<h3>Top Headlines</h3>
+<div class="news-list">
+    {% for n in news %}
+        <div class="news-item">
+            <a href="{{ n.url }}" target="_blank" class="headline-link">
+                {{ n.text }}
+            </a>
+            <p class="date">{{ n.published }}</p>
+        </div>
+    {% endfor %}
+</div>
+
+
+
+{% endblock %}

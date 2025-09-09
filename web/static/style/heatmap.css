@@ -122,3 +122,28 @@ body::before {
 
 /* Link reset */
 .grid-container a { text-decoration: none; }
+
+
+
+/* Last Updated - Dark/Cyber Theme */
+.last-updated {
+    font-size: 0.9rem;
+    color: #00e5ff;              /* สีฟ้า neon เข้ากับ title */
+    margin: 15px 0;
+    text-align: center;           /* อยู่กลางหน้า */
+    font-style: italic;
+    background-color: rgba(0, 229, 255, 0.1); /* พื้นหลังโปร่งแสง neon */
+    padding: 5px 15px;
+    border-radius: 12px;
+    display: inline-block;
+    box-shadow: 0 0 10px rgba(0, 229, 255, 0.5); /* glow เล็กๆ */
+    text-shadow: 0 0 5px #00e5ff;
+    z-index: 1;
+    position: relative;
+    transition: box-shadow 0.3s ease, transform 0.3s ease;
+}
+
+.last-updated:hover {
+    box-shadow: 0 0 20px rgba(0, 229, 255, 0.8);
+    transform: scale(1.05);
+}

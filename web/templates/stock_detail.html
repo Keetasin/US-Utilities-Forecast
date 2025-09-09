@@ -7,7 +7,7 @@
 
 <h2 class="title">{{ stock.symbol }} - Stock Chart</h2>
 
-<a class="back-link" href="{{ url_for('views.heatmap') }}">Heatmap</a>
+<a class="back-link" href="{{ url_for('views.news', symbol=stock.symbol) }}">News</a>
 <a class="back-link" href="{{ url_for('views.forecasting', symbol=stock.symbol) }}">Forecasting</a>
 
 <!-- TradingView Widget -->
