@@ -43,10 +43,10 @@ def backtest_last_n_days(series: pd.Series, model_name: str, steps=7):
     train_data = s.iloc[:-steps]
     true_future = s.iloc[-steps:]
     if model_name=="arima":
-        m = ARIMA(train_data, order=(5,1,0)).fit()
+        m = ARIMA(train_data, order=(2,1,0)).fit()
         fc = m.forecast(steps=steps)
     elif model_name=="sarima":
-        m = SARIMAX(train_data, order=(1,1,1), seasonal_order=(1,1,1,20),
+        m = SARIMAX(train_data, order=(2,1,0), seasonal_order=(1,1,0,12),
                     enforce_stationarity=False, enforce_invertibility=False).fit(disp=False)
         fc = m.forecast(steps=steps)
     elif model_name=="lstm":
@@ -61,10 +61,10 @@ def future_forecast(series: pd.Series, model_name: str, steps=7):
     s = ensure_datetime_freq(series)
     last_dt = s.index[-1]
     if model_name=="arima":
-        m = ARIMA(s, order=(5,1,0)).fit()
+        m = ARIMA(s, order=(2,1,0)).fit()
         fc = m.forecast(steps=steps)
     elif model_name=="sarima":
-        m = SARIMAX(s, order=(1,1,1), seasonal_order=(1,1,1,20),
+        m = SARIMAX(s, order=(2,1,0), seasonal_order=(1,1,0,12),
                     enforce_stationarity=False, enforce_invertibility=False).fit(disp=False)
         fc = m.forecast(steps=steps)
     elif model_name=="lstm":

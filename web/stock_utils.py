@@ -29,24 +29,38 @@ def fetch_and_update_stock(ticker):
 def update_stock_data(app, force=False):
     with app.app_context():
         now_utc = datetime.now(timezone.utc)
-        market_open = time(9,30)
-        market_close = time(16,0)
+        market_open = time(9, 30)
+        market_close = time(16, 0)
         update_allowed = force or (market_open <= now_utc.time() <= market_close)
 
         for t in TICKERS:
-            s = Stock.query.filter_by(symbol=t).first()
-            if not s:
-                s = Stock(symbol=t)
-                db.session.add(s)
-                db.session.commit()
-            if update_allowed:
-                price, change, cap, bg_color = fetch_and_update_stock(t)
-                if price is not None:
+            # First, fetch the data
+            price, change, cap, bg_color = fetch_and_update_stock(t)
+            
+            # Only proceed if data was successfully fetched
+            if price is not None:
+                # Check if the stock already exists in the database
+                s = Stock.query.filter_by(symbol=t).first()
+                if not s:
+                    # If it doesn't exist, create a new entry with the fetched data
+                    s = Stock(
+                        symbol=t,
+                        price=price,
+                        change=change,
+                        marketCap=cap,
+                        bg_color=bg_color,
+                        last_updated=now_utc
+                    )
+                    db.session.add(s)
+                else:
+                    # If it exists, update its attributes
                     s.price = price
                     s.change = change
                     s.marketCap = cap
                     s.bg_color = bg_color
                     s.last_updated = now_utc
+        
+        # Commit all changes to the database at once after the loop
         db.session.commit()
         tz_th = pytz.timezone("Asia/Bangkok")
         now_th = now_utc.astimezone(tz_th)
