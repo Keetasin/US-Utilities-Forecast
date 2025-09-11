@@ -7,6 +7,11 @@ from sklearn.metrics import mean_absolute_error
 import tensorflow as tf
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense, Dropout
+import yfinance as yf
+from ..models import StockForecast
+from .. import db
+from datetime import datetime
+
 
 def to_scalar(x) -> float:
     return float(np.asarray(x).reshape(-1)[0])
@@ -112,3 +117,92 @@ def lstm_forecast_simple(series: pd.Series, steps=7, lookback=60, epochs=15, bat
         last_window = np.roll(last_window,-1)
         last_window[-1]=p
     return scaler.inverse_transform(np.array(preds).reshape(-1,1)).ravel()
+
+
+# def update_forecast(app, tickers, models=["arima","sarima","lstm"]):
+#     with app.app_context():
+#         for symbol in tickers:
+#             for m in models:
+#                 try:
+#                     period = get_period_by_model(m)
+#                     data = yf.download(symbol, period=period, progress=False, auto_adjust=True)["Close"].dropna()
+#                     data = ensure_datetime_freq(data)
+
+#                     if len(data) < 70:
+#                         print(f"[Forecast] Skip {symbol}-{m} (not enough data)")
+#                         continue
+
+#                     # 1️⃣ Backtest 7 วัน
+#                     back_fc, back_mae = backtest_last_n_days(data, model_name=m, steps=7)
+#                     backtest_json = series_to_chart_pairs_safe(back_fc)
+
+#                     # 2️⃣ Future forecast
+#                     fut_fc = future_forecast(data, model_name=m, steps=7)
+#                     forecast_json = series_to_chart_pairs_safe(fut_fc)
+
+#                     # 3️⃣ Last price (ล่าสุด)
+#                     last_price = to_scalar(data.iloc[-1])
+
+#                     # 4️⃣ Save to DB
+#                     fc = StockForecast.query.filter_by(symbol=symbol, model=m).first()
+#                     if not fc:
+#                         fc = StockForecast(
+#                             symbol=symbol,
+#                             model=m,
+#                             forecast_json=forecast_json,
+#                             backtest_json=backtest_json,
+#                             backtest_mae=back_mae,
+#                             last_price=last_price,
+#                             updated_at=datetime.utcnow()
+#                         )
+#                         db.session.add(fc)
+#                     else:
+#                         fc.forecast_json = forecast_json
+#                         fc.backtest_json = backtest_json
+#                         fc.backtest_mae = back_mae
+#                         fc.last_price = last_price
+#                         fc.updated_at = datetime.utcnow()
+
+#                     db.session.commit()
+#                     print(f"[Forecast] Updated {symbol}-{m} at {fc.updated_at} | Backtest MAE: {back_mae}")
+
+#                 except Exception as e:
+#                     print(f"[Forecast Error] {symbol}-{m}: {e}")
+
+
+
+def update_forecast(app, tickers, models=["arima","sarima","lstm"]):
+    with app.app_context():
+        for symbol in tickers:
+            for m in models:
+                try:
+                    period = get_period_by_model(m)
+                    data = yf.download(symbol, period=period, progress=False, auto_adjust=True)['Close'].dropna()
+                    data = ensure_datetime_freq(data)
+                    if len(data)<70:
+                        print(f"[Forecast] Skip {symbol}-{m} (not enough data)")
+                        continue
+
+                    # Backtest + forecast
+                    back_fc, back_mae = backtest_last_n_days(data, model_name=m, steps=7)
+                    backtest_json = series_to_chart_pairs_safe(back_fc)
+                    fut_fc = future_forecast(data, model_name=m, steps=7)
+                    forecast_json = series_to_chart_pairs_safe(fut_fc)
+                    last_price = to_scalar(data.iloc[-1])
+
+                    fc = StockForecast.query.filter_by(symbol=symbol, model=m).first()
+                    if not fc:
+                        fc = StockForecast(symbol=symbol, model=m, forecast_json=forecast_json,
+                                           backtest_json=backtest_json, backtest_mae=back_mae,
+                                           last_price=last_price, updated_at=datetime.utcnow())
+                        db.session.add(fc)
+                    else:
+                        fc.forecast_json = forecast_json
+                        fc.backtest_json = backtest_json
+                        fc.backtest_mae = back_mae
+                        fc.last_price = last_price
+                        fc.updated_at = datetime.utcnow()
+                    db.session.commit()
+                    print(f"[Forecast] Updated {symbol}-{m} | Backtest MAE: {back_mae}")
+                except Exception as e:
+                    print(f"[Forecast Error] {symbol}-{m}: {e}")

@@ -18,3 +18,14 @@ class StockNews(db.Model):
     news_json = db.Column(db.JSON, nullable=False)  
     summary = db.Column(db.Text, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+class StockForecast(db.Model):
+    __tablename__ = "stock_forecasts"
+    id = db.Column(db.Integer, primary_key=True)
+    symbol = db.Column(db.String(10), nullable=False)
+    model = db.Column(db.String(10), nullable=False)
+    forecast_json = db.Column(db.JSON, nullable=False)
+    backtest_json = db.Column(db.JSON, nullable=True) 
+    backtest_mae = db.Column(db.Float, nullable=True)  
+    last_price = db.Column(db.Float, nullable=True)    
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow)
