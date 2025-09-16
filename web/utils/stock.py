@@ -5,7 +5,7 @@ from ..models import Stock
 from .. import db
 
 # TICKERS = ["AAPL", "MSFT", "AMZN", "GOOGL", "META", "NVDA", "TSLA"]
-TICKERS = ["AEP", "DUK", "SO", "ED", "EIX"]
+TICKERS = ["AEP", "DUK", "SO", "ED", "EXC"]
 
 def fetch_and_update_stock(ticker):
     stock = yf.Ticker(ticker)

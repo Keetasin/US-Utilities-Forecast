@@ -223,10 +223,9 @@ def stock_analytics(symbol):
         # -------- Dividend --------
         dividends = stk_yf.dividends
         dividend_years = dividends.resample('Y').sum()
-        payout_ratios = info.get("payoutRatio", 0)
         dividend_years_dict = {d.strftime("%Y"): float(v) for d, v in dividend_years.items()}
 
-        # -------- Revenue & Income --------
+        # -------- Revenue & Net Income --------
         fin = stk_yf.financials
         revenue = fin.loc["Total Revenue"].sort_index() if "Total Revenue" in fin.index else None
         net_income = fin.loc["Net Income"].sort_index() if "Net Income" in fin.index else None
@@ -247,7 +246,7 @@ def stock_analytics(symbol):
     except Exception as e:
         print("Error fetching yfinance:", e)
         info = {}
-        dividend_years_dict, payout_ratios, revenue_dict, net_income_dict = {}, 0, {}, {}
+        dividend_years_dict, revenue_dict, net_income_dict = {}, {}, {}
         hist_full, relative_perf = {}, {}
 
     # Dividend Yield %
@@ -269,9 +268,8 @@ def stock_analytics(symbol):
         last_updated=last_updated,
         overview_data=overview_data,
         dividend_years=dividend_years_dict,
-        payout_ratio=payout_ratios,
-        revenue=revenue_dict,
         net_income=net_income_dict,
+        revenue=revenue_dict,
         hist_prices=hist_full.reset_index().to_dict(orient='list') if hist_full is not None else {},
         relative_perf=relative_perf.reset_index().to_dict(orient='list') if relative_perf is not None else {}
     )
