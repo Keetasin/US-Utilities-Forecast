@@ -8,7 +8,7 @@
 <h2 class="title">{{ symbol }} - Latest News</h2>
 
 <a class="back-link" href="{{ url_for('views.heatmap') }}">Heatmap</a>
-<a class="back-link" href="{{ url_for('views.forecasting', symbol=symbol) }}">Forecasting</a>
+<a class="back-link" href="{{ url_for('views.forecasting', symbol=symbol, model='arima') }}">Forecasting</a>
 <a class="back-link" href="{{ url_for('views.stock_detail', symbol=symbol) }}">Stock Detail</a>
 
 <div class="summary">

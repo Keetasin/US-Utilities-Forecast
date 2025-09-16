@@ -28,8 +28,8 @@ body::before {
 /* Title */
 h2 {
     font-size: 36px;
-    margin-top: 80px;
-    margin-bottom: 40px;
+    margin-top: 20px;
+    margin-bottom: 60px;
     color: #00e5ff;
     text-shadow: 0 0 10px #00e5ff, 0 0 20px #00e5ff;
     position: relative;
@@ -47,19 +47,24 @@ h2 {
 }
 
 /* Card */
+/* Card */
 .card {
     background: rgba(20, 20, 20, 0.85);
-    padding: 30px 40px;
+    padding: 20px 25px; /* ลด padding */
     border-radius: 20px;
-    width: 300px;
-    height: 180px;
+    width: 450px;
+    height: auto;       /* แก้จาก 180px เป็น auto */
+    min-height: 180px;  /* ถ้าต้องการความสูงขั้นต่ำ */
     box-shadow: 0 0 15px rgba(0,255,255,0.4);
     transition: transform 0.3s, box-shadow 0.3s;
     cursor: pointer;
     color: #fff;
-    font-size: 18px;
+    font-size: 16px;   /* ลด font-size นิดหน่อย */
     font-weight: 600;
+    overflow-wrap: break-word;  /* ให้ text ห่อบรรทัดอัตโนมัติ */
+    word-break: break-word;     /* รองรับคำยาว ๆ */
 }
+
 .card:hover {
     transform: translateY(-10px) scale(1.05);
     box-shadow: 0 0 25px rgba(0,255,255,0.7);
@@ -77,4 +82,12 @@ h2 {
     font-size: 16px;
     color: #ccc;
     line-height: 1.4;
+}
+
+.card ul {
+    padding-left: 20px; /* ปรับระยะห่างจากขอบซ้ายของ card */
+    text-align: left;   /* ให้ข้อความใน li ชิดซ้าย */
+    list-style-type: disc; /* ใช้ bullet ปกติ */
+    margin: 10px 0 0 0; /* ลด margin บน-ล่าง */
+    color: #fff; /* ตัวหนังสือสีขาวชัด */
 }

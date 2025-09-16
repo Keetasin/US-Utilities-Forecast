@@ -2,15 +2,7 @@
 {% block title %}Stock Forecasting{% endblock %}
 
 {% block content %}
-<link rel="stylesheet" href="{{ url_for('static', filename='style/heatmap.css') }}">
-<style>
-.summary-box { display:inline-block; padding:15px 25px; margin-bottom:20px; border-radius:16px; background:rgba(20,20,20,0.8); box-shadow:0 0 15px rgba(0,255,255,0.4); font-size:16px; font-weight:600; }
-.summary-box p { margin:5px 0; }
-.disclaimer { margin-top:20px; font-size:12px; color:#888; }
-.model-switch { margin: 10px 0 25px; }
-.model-switch a { margin-right: 10px; padding:8px 12px; border-radius:10px; background:#0e1b22; color:#cfefff; text-decoration:none; border:1px solid #0ff3; }
-.model-switch a.active { background:#00e5ff22; border-color:#00e5ff; }
-</style>
+<link rel="stylesheet" href="{{ url_for('static', filename='style/forecasting.css') }}">
 
 <h2 class="title">Stock Price Forecasting</h2>
 
@@ -19,12 +11,17 @@
 
   <!-- ปุ่มสลับโมเดล และเปรียบเทียบ -->
   <div class="model-switch">
-    <a href="{{ url_for('views.forecasting', symbol=symbol, model='arima') }}" class="{{ 'active' if model=='ARIMA' else '' }}">ARIMA</a>
-    <a href="{{ url_for('views.forecasting', symbol=symbol, model='sarima') }}" class="{{ 'active' if model=='SARIMA' else '' }}">SARIMA</a>
-    <a href="{{ url_for('views.forecasting', symbol=symbol, model='lstm') }}" class="{{ 'active' if model=='LSTM' else '' }}">LSTM</a>
-    <a href="{{ url_for('views.compare_models', symbol=symbol) }}" style="margin-left:10px;">🔀 Compare 3 Models</a>
+    <a class="back-link {{ 'active' if model|lower=='arima' else '' }}" 
+       href="{{ url_for('views.forecasting', symbol=symbol, model='arima') }}">ARIMA</a>
+    <a class="back-link {{ 'active' if model|lower=='sarima' else '' }}" 
+       href="{{ url_for('views.forecasting', symbol=symbol, model='sarima') }}">SARIMA</a>
+    <a class="back-link {{ 'active' if model|lower=='lstm' else '' }}" 
+       href="{{ url_for('views.forecasting', symbol=symbol, model='lstm') }}">LSTM</a>
+    <a class="back-link" 
+       href="{{ url_for('views.compare_models', symbol=symbol) }}">🔀 Compare 3 Models</a>
   </div>
 {% endif %}
+
 
 {% if error %}
   <div class="summary-box" style="background:#401818;">

@@ -32,26 +32,6 @@ def summarize_news_for_investor(news_list):
         print(f"Error calling Ollama API: {e}")
         return "Failed to generate summary."
 
-# def update_stock_news(app, symbols):
-#     """Update news + summary daily"""
-#     from datetime import datetime
-#     with app.app_context():
-#         for symbol in symbols:
-#             news_list = fetch_news(symbol)
-#             summary = summarize_news_for_investor(news_list)
-            
-#             sn = StockNews.query.filter_by(symbol=symbol).first()
-#             if not sn:
-#                 sn = StockNews(symbol=symbol, news_json=news_list, summary=summary, updated_at=datetime.utcnow())
-#                 db.session.add(sn)
-#             else:
-#                 sn.news_json = news_list
-#                 sn.summary = summary
-#                 sn.updated_at = datetime.utcnow()
-#         db.session.commit()
-#         print(f"[{datetime.utcnow()}] Stock news updated ✅")
-
-
 def update_stock_news(app, symbols):
     with app.app_context():
         for symbol in symbols:
@@ -68,32 +48,6 @@ def update_stock_news(app, symbols):
         db.session.commit()
         print(f"[{datetime.utcnow()}] Stock news updated ✅")
         
-# def initialize_news(app):
-#     """Initialize news: fetch missing tickers OR update if last update before today 20:00"""
-#     from datetime import datetime, time
-#     import pytz
-
-#     tz_th = pytz.timezone("Asia/Bangkok")
-#     now_th = datetime.now(tz_th)
-#     today_20 = now_th.replace(hour=20, minute=0, second=0, microsecond=0)
-
-#     with app.app_context():
-#         for t in TICKERS:
-#             sn = StockNews.query.filter_by(symbol=t).first()
-#             if not sn:
-#                 # ไม่มีข่าวใน DB => fetch
-#                 print(f"DB missing news for {t}. Fetching initial stock news...")
-#                 update_stock_news(app, [t])
-#             else:
-#                 # มีข่าวแล้ว แต่อัพเดทล่าสุดก่อนวันนี้ 20:00 => update
-#                 last_update_th = sn.updated_at.replace(tzinfo=pytz.UTC).astimezone(tz_th)
-#                 if last_update_th < today_20:
-#                     print(f"News for {t} is outdated (last updated {last_update_th}). Updating...")
-#                     update_stock_news(app, [t])
-#                 else:
-#                     print(f"News for {t} already up-to-date.")
-
-
 
 def initialize_news(app):
     """Initialize news: fetch missing tickers OR update if last update before last cutoff (20:00 TH time)"""

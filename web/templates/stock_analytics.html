@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+{% block title %}{{ stock.symbol }} Analytics{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='style/stock_analytics.css') }}">
+
+<h2>{{ stock.symbol }}</h2>
+<p>{{ last_updated }}</p>
+
+<!-- ===== Overview Cards ===== -->
+<div class="cards-container">
+    <div class="card">
+        <h4> Dividend Yield</h4>
+        <p>{{ overview_data[0].div_yield }}%</p>
+    </div>
+    <div class="card">
+        <h4> P/E Ratio</h4>
+        <p>{{ overview_data[0].pe }}</p>
+    </div>
+    <div class="card">
+        <h4> Risk Level (Beta)</h4>
+        <p>{{ overview_data[0].beta }}</p>
+    </div>
+</div>
+
+<!-- ===== Chart Controls ===== -->
+<div class="chart-controls">
+    <select id="chartSelect">
+        <option value="dividendChart">Historical Dividend & Payout Ratio</option>
+        <option value="revenueChart">Revenue & Net Income Trend</option>
+        <option value="maChart">Price vs Moving Averages (MA50, MA200)</option>
+        <option value="volatilityChart">Volatility (Rolling Std Dev)</option>
+        <option value="relativePerfChart">Relative Performance vs S&P500</option>
+    </select>
+
+    <select id="timeFilter">
+        <option value="1wk">1 Week</option>
+        <option value="1mo">1 Month</option>
+        <option value="6mo">6 Months</option>
+        <option value="1y" selected>1 Year</option>
+        <option value="5y">5 Years</option>
+    </select>
+</div>
+
+<!-- ===== Chart Containers ===== -->
+<div class="chart-section">
+    <div id="dividendChart" class="chart-box"></div>
+    <div id="revenueChart" class="chart-box" style="display:none;"></div>
+    <div id="maChart" class="chart-box" style="display:none;"></div>
+    <div id="volatilityChart" class="chart-box" style="display:none;"></div>
+    <div id="relativePerfChart" class="chart-box" style="display:none;"></div>
+</div>
+
+<!-- ===== Scripts ===== -->
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+<script>
+const chartSelect = document.getElementById('chartSelect');
+const timeFilter = document.getElementById('timeFilter');
+const charts = ['dividendChart','revenueChart','maChart','volatilityChart','relativePerfChart'];
+
+// Show/hide chart based on dropdown
+chartSelect.addEventListener('change', function() {
+    charts.forEach(id => {
+        document.getElementById(id).style.display = (id === this.value) ? 'block' : 'none';
+    });
+});
+
+// Data from Flask
+const dividendYears = {{ dividend_years|default({})|tojson }};
+const payoutRatios = {{ payout_ratio|default({})|tojson }};
+const payoutArray = Object.keys(dividendYears).map(year => payoutRatios || 0);
+
+const revenue = {{ revenue|default({})|tojson }};
+const net_income = {{ net_income|default({})|tojson }};
+
+const hist = {{ hist_prices|default({})|tojson }};
+const rel = {{ relative_perf|default({})|tojson }};
+
+// ===== Plot Functions =====
+function plotDividend() {
+    Plotly.newPlot('dividendChart', [
+        { x: Object.keys(dividendYears), y: Object.values(dividendYears), name: 'Dividend', type: 'bar', marker:{color:'#00e5ff'} },
+        { x: Object.keys(dividendYears), y: payoutArray, name: 'Payout Ratio (%)', type: 'scatter', mode: 'lines+markers', yaxis:'y2', line:{color:'#ff6f61'} }
+    ], {
+        yaxis: { title: 'Dividend', gridcolor:'#333', color:'#00e5ff' },
+        yaxis2: { title: 'Payout Ratio (%)', overlaying: 'y', side: 'right', gridcolor:'#333', color:'#ff6f61' },
+        plot_bgcolor:'#111',
+        paper_bgcolor:'#111',
+        font:{color:'#00e5ff'},
+        margin: { t:50, r:50, l:50, b:50 }
+    });
+}
+
+function plotRevenue() {
+    Plotly.newPlot('revenueChart', [
+        { x: Object.keys(revenue), y: Object.values(revenue), name: 'Revenue', type: 'bar', marker:{color:'#00e5ff'} },
+        { x: Object.keys(net_income), y: Object.values(net_income), name: 'Net Income', type: 'bar', marker:{color:'#ff6f61'} }
+    ], {
+        plot_bgcolor:'#111',
+        paper_bgcolor:'#111',
+        font:{color:'#00e5ff'},
+        margin: { t:50, r:50, l:50, b:50 }
+    });
+}
+
+function plotMA(timeRange="1y") {
+    const filtered = hist['Date'].map((d,i) => ({Date: d, Close: hist['Close'][i], MA50: hist['MA50'][i], MA200: hist['MA200'][i]}));
+    let startIndex = 0;
+    if(timeRange === "1wk") startIndex = Math.max(filtered.length-7,0);
+    else if(timeRange === "1mo") startIndex = Math.max(filtered.length-30,0);
+    else if(timeRange === "6mo") startIndex = Math.max(filtered.length-126,0);
+    else if(timeRange === "1y") startIndex = Math.max(filtered.length-252,0);
+    else if(timeRange === "5y") startIndex = 0;
+    const dataSlice = filtered.slice(startIndex);
+
+    Plotly.newPlot('maChart', [
+        { x: dataSlice.map(d=>d.Date), y: dataSlice.map(d=>d.Close), name: 'Price', type: 'scatter', line:{color:'#00e5ff'} },
+        { x: dataSlice.map(d=>d.Date), y: dataSlice.map(d=>d.MA50), name: 'MA50', type: 'scatter', line:{color:'#ff6f61'} },
+        { x: dataSlice.map(d=>d.Date), y: dataSlice.map(d=>d.MA200), name: 'MA200', type: 'scatter', line:{color:'#ffa500'} }
+    ], {
+        plot_bgcolor:'#111',
+        paper_bgcolor:'#111',
+        font:{color:'#00e5ff'},
+        margin: { t:50, r:50, l:50, b:50 }
+    });
+}
+
+function plotVolatility(timeRange="1y") {
+    const filtered = hist['Date'].map((d,i) => ({Date:d, Vol:hist['Volatility'][i]}));
+    let startIndex = 0;
+    if(timeRange === "1wk") startIndex = Math.max(filtered.length-7,0);
+    else if(timeRange === "1mo") startIndex = Math.max(filtered.length-30,0);
+    else if(timeRange === "6mo") startIndex = Math.max(filtered.length-126,0);
+    else if(timeRange === "1y") startIndex = Math.max(filtered.length-252,0);
+    else if(timeRange === "5y") startIndex = 0;
+    const dataSlice = filtered.slice(startIndex);
+
+    Plotly.newPlot('volatilityChart', [
+        { x: dataSlice.map(d=>d.Date), y: dataSlice.map(d=>d.Vol), name: 'Volatility (%)', type: 'scatter', fill: 'tozeroy', line:{color:'#00e5ff'} }
+    ], {
+        plot_bgcolor:'#111',
+        paper_bgcolor:'#111',
+        font:{color:'#00e5ff'},
+        margin: { t:50, r:50, l:50, b:50 }
+    });
+}
+
+function plotRelative(timeRange="1y") {
+    const filtered = rel['Date'].map((d,i)=>({Date:d, Close:rel['Close'][i]}));
+    let startIndex = 0;
+    if(timeRange === "1wk") startIndex = Math.max(filtered.length-7,0);
+    else if(timeRange === "1mo") startIndex = Math.max(filtered.length-30,0);
+    else if(timeRange === "6mo") startIndex = Math.max(filtered.length-126,0);
+    else if(timeRange === "1y") startIndex = Math.max(filtered.length-252,0);
+    else if(timeRange === "5y") startIndex = 0;
+    const dataSlice = filtered.slice(startIndex);
+
+    Plotly.newPlot('relativePerfChart', [
+        { x: dataSlice.map(d=>d.Date), y: dataSlice.map(d=>d.Close), name: '{{ stock.symbol }} vs S&P500', type: 'scatter', line:{color:'#00e5ff'} }
+    ], {
+        plot_bgcolor:'#111',
+        paper_bgcolor:'#111',
+        font:{color:'#00e5ff'},
+        margin: { t:50, r:50, l:50, b:50 }
+    });
+}
+
+// ===== Initial Plot =====
+plotDividend();
+plotRevenue();
+plotMA(timeFilter.value);
+plotVolatility(timeFilter.value);
+plotRelative(timeFilter.value);
+
+// ===== Update on Time Filter Change =====
+timeFilter.addEventListener('change', function() {
+    plotMA(this.value);
+    plotVolatility(this.value);
+    plotRelative(this.value);
+});
+</script>
+{% endblock %}

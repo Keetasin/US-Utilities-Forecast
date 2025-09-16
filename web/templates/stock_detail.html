@@ -8,7 +8,9 @@
 <h2 class="title">{{ stock.symbol }}</h2>
 
 <a class="back-link" href="{{ url_for('views.news', symbol=stock.symbol) }}">News</a>
-<a class="back-link" href="{{ url_for('views.forecasting', symbol=stock.symbol) }}">Forecasting</a>
+<a class="back-link" href="{{ url_for('views.stock_analytics', symbol=stock.symbol) }}">Analytics</a>
+<a class="back-link" href="{{ url_for('views.forecasting', symbol=stock.symbol, model='arima') }}">Forecasting</a>
+
 
 <!-- TradingView Widget -->
 <div class="tradingview-widget-container">
@@ -18,7 +20,7 @@
   new TradingView.widget({
     "width": "100%",
     "height": 500,
-    "symbol": "NASDAQ:{{ stock.symbol }}",
+    "symbol": "{{ market }}:{{ stock.symbol }}",
     "interval": "D",
     "timezone": "Etc/UTC",
     "theme": "dark",
@@ -29,6 +31,7 @@
     "container_id": "tradingview_{{ stock.symbol }}"
   });
   </script>
+
 </div>
 
 <div class="stock-info">

@@ -51,16 +51,20 @@ body::before {
     border-radius: 10px;
 }
 
-/* Flex Container for Cards */
+/* Grid Layout 3+3+1 (ตัวสุดท้ายกลาง) */
 .grid-container {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center; /* ชิดกลาง */
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-auto-rows: 150px;
     gap: 20px;
     max-width: 900px;
     margin: 0 auto;
+    z-index: 1;
+    position: relative;
 }
-
+.grid-container > :nth-child(7) {
+    grid-column: 2 / span 1; /* ตัวสุดท้ายอยู่ตรงกลาง */
+}
 
 /* Stock Card */
 .stock-card {
@@ -70,9 +74,10 @@ body::before {
     transition: transform 0.3s, box-shadow 0.3s;
     color: #fff;
     cursor: pointer;
-    width: 250px; /* กว้างเท่ากัน */
-    flex: 1 1 250px; /* ยืดหยุ่น */
+    position: relative;
+    z-index: 1;
 }
+
 /* Hover effect: scale + glow + tooltip */
 .stock-card:hover {
     transform: scale(1.1);
@@ -118,27 +123,77 @@ body::before {
 /* Link reset */
 .grid-container a { text-decoration: none; }
 
-
-
 /* Last Updated - Dark/Cyber Theme */
 .last-updated {
     font-size: 0.9rem;
-    color: #00e5ff;              /* สีฟ้า neon เข้ากับ title */
+    color: #00e5ff;
     margin: 15px 0;
-    text-align: center;           /* อยู่กลางหน้า */
+    text-align: center;
     font-style: italic;
-    background-color: rgba(0, 229, 255, 0.1); /* พื้นหลังโปร่งแสง neon */
+    background-color: rgba(0, 229, 255, 0.1);
     padding: 5px 15px;
     border-radius: 12px;
     display: inline-block;
-    box-shadow: 0 0 10px rgba(0, 229, 255, 0.5); /* glow เล็กๆ */
+    box-shadow: 0 0 10px rgba(0, 229, 255, 0.5);
     text-shadow: 0 0 5px #00e5ff;
     z-index: 1;
     position: relative;
     transition: box-shadow 0.3s ease, transform 0.3s ease;
 }
-
 .last-updated:hover {
     box-shadow: 0 0 20px rgba(0, 229, 255, 0.8);
     transform: scale(1.05);
+}
+
+/* Summary Box */
+.summary-box { 
+    display:inline-block; 
+    padding:15px 25px; 
+    margin-bottom:20px; 
+    border-radius:16px; 
+    background:rgba(20,20,20,0.8); 
+    box-shadow:0 0 15px rgba(0,255,255,0.4); 
+    font-size:16px; 
+    font-weight:600; 
+}
+.summary-box p { margin:5px 0; }
+.disclaimer { margin-top:20px; font-size:12px; color:#888; }
+
+/* ----------------- Buttons: Unified Style ----------------- */
+.btn, .model-switch a {
+    display: inline-block;
+     margin: 15px 0 25px;
+    padding: 8px 14px;
+    border-radius: 10px;
+    background: #0e1b22;
+    color: #cfefff;
+    text-decoration: none;
+    border: 1px solid #0ff3;
+    font-weight: 600;
+    transition: transform 0.2s, box-shadow 0.2s, background 0.2s, color 0.2s;
+}
+
+.btn:hover, .model-switch a:hover {
+    transform: scale(1.05);
+    box-shadow: 0 0 15px #00e5ff;
+    background: #00e5ff33; /* โปร่งแสงแต่เห็นชัด */
+    color: #000;
+}
+
+.model-switch a.active {
+    background: #00e5ff;  /* สีฟ้า neon สด */
+    color: #000;           /* ตัวอักษรเด่น */
+    border: 1px solid #00ffff; /* ขอบชัดเจน */
+    box-shadow: 0 0 20px #00e5ff; /* glow ชัด */
+}
+
+
+/* Responsive for small screens */
+@media (max-width: 768px) {
+    .grid-container {
+        grid-template-columns: repeat(2, 1fr);
+        grid-auto-rows: 140px;
+    }
+    .summary-box { width: 90%; }
+    .btn, .model-switch a { padding: 6px 10px; font-size: 14px; }
 }

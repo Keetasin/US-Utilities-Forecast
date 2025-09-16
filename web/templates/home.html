@@ -5,20 +5,41 @@
 {% block content %}
 <link rel="stylesheet" href="{{ url_for('static', filename='style/home.css') }}">
 
-<h2>Forecasting "The Magnificent Seven" with Time Series Analysis</h2>
+<!-- Header / Title -->
+<h2>Forecasting US Utilities Sector with Time Series Analysis</h2>
 
+<!-- Card Container -->
 <div class="card-container">
+    <!-- Key Insights Card -->
     <div class="card">
-        <h3>Heatmap</h3>
-        <p>View the latest Magnificent 7 stock performance in an interactive heatmap.</p>
+        <h3>Why Utilities?</h3>
+            <ul>
+                <li><strong>รายได้มั่นคง:</strong> คาดการณ์ได้ แม้เศรษฐกิจถดถอย</li>
+                <li><strong>ปันผลสูง:</strong> จ่ายสม่ำเสมอ Yield ~3–4% (EIX ~6%)</li>
+                <li><strong>หุ้นนิ่ง:</strong> ความผันผวนต่ำ เหมาะระยะยาว</li>
+                <li><strong>กลุ่มสัมพันธ์สูง:</strong> เคลื่อนไหวพร้อมกัน ลดความเสี่ยง</li>
+            </ul>
     </div>
+
+    <!-- Features / Charts Card -->
     <div class="card">
-        <h3>Stock Charts</h3>
-        <p>Click any stock in the heatmap to view detailed charts with TradingView widget.</p>
+        <h3>Key Features</h3>
+        <ul>
+            <li>Heatmap: หุ้น Utilities 5 ตัว </li>
+            <li>Stock Detail: ข้อมูลราคาหุ้นล่าสุด</li>
+            <li>News: สรุปข่าวและ headline สำหรับนักลงทุน</li>
+            <li>Forecasting: ARIMA/SARIMA/LSTM</li>
+            <li>Compare Models: หา best model ตาม MAE</li>
+            <li>Dashboard:</li>
+        </ul>
     </div>
+
+    <!-- References Card -->
     <div class="card">
-        <h3>Insights & Forecast</h3>
-        <p>Explore predictions and analysis of the Magnificent Seven using time series models.</p>
+        <h3>References</h3>
+        <ul>
+            <li>ข้อมูลหุ้น: Yahoo Finance</li>
+        </ul>
     </div>
 </div>
 {% endblock %}

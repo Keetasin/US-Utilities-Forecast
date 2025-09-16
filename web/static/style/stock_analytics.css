@@ -1,0 +1,84 @@
+/* ===== Cards ===== */
+.cards-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    justify-content: center;
+    margin-bottom: 30px;
+}
+
+.card {
+    background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+    color: #fff;
+    padding: 25px 20px;
+    border-radius: 15px;
+    width: 220px;
+    text-align: center;
+    box-shadow: 0 8px 20px rgba(0, 229, 255, 0.4);
+    transition: transform 0.3s, box-shadow 0.3s;
+}
+
+.card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 12px 25px rgba(0, 229, 255, 0.6);
+}
+
+.card h4 {
+    font-size: 1.2rem;
+    margin-bottom: 10px;
+}
+
+.card p {
+    font-size: 1.5rem;
+    font-weight: bold;
+}
+
+/* ===== Chart Controls ===== */
+.chart-controls {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 10px;
+}
+
+#chartSelect, #timeFilter {
+    display: inline-block;
+    padding: 10px 15px;
+    font-size: 1rem;
+    border-radius: 8px;
+    border: 1px solid #444;
+    background-color: #111;
+    color: #00e5ff;
+    cursor: pointer;
+    transition: all 0.3s;
+    margin: 0;
+}
+
+#chartSelect:hover, #timeFilter:hover {
+    border-color: #00e5ff;
+    box-shadow: 0 0 10px rgba(0, 229, 255, 0.5);
+}
+
+/* ===== Chart Boxes ===== */
+.chart-box {
+    width: 100%;
+    max-width: 1000px;
+    height: 500px;
+    margin: 0 auto 40px auto;
+    background-color: #111;
+    border-radius: 15px;
+    padding: 10px;
+    box-shadow: 0 6px 20px rgba(0, 229, 255, 0.3);
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 1200px) {
+    .chart-box { height: 450px; }
+}
+
+@media (max-width: 768px) {
+    .cards-container { flex-direction: column; align-items: center; }
+    #chartSelect, #timeFilter { width: 95%; }
+    .chart-box { height: 400px; }
+}
