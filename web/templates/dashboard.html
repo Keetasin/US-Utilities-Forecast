@@ -2,10 +2,134 @@
 {% block title %}Overview Dashboard{% endblock %}
 
 {% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='style/dashboard.css') }}">
 
 <h1 class="title">US Utilities Sector Dashboard</h1>
-<P> เเสดงความสัมพันธ์หุ้น 5 ตัว โดยรวม</p>
+
+<!-- ===== Overview Cards ===== -->
+<!-- ===== Overview Cards ===== -->
+<div class="cards-container">
+    <div class="card">
+        <h4>Number of Stocks</h4>
+        <p>{{ stocks|length }}</p>
+    </div>
+    <div class="card">
+        <h4>Total Market Cap</h4>
+        <p>${{ "%.2f"|format(market_caps|sum / 1e9) }}B</p>
+    </div>
+</div>
 
 
+<!-- ===== Row 1: Charts ===== -->
+<div class="chart-section">
+    <div id="marketCapChart" class="chart-box"></div>
+    <div id="dividendChart" class="chart-box"></div>
+</div>
 
+<!-- ===== Row 2: Analysis Charts ===== -->
+<div class="chart-section">
+    <div id="corrChart" class="chart-box"></div>
+    <div id="histChart" class="chart-box"></div>
+</div>
+
+<!-- ===== Stocks Table ===== -->
+<div class="table-container">
+    <table>
+        <thead>
+            <tr>
+                <th>Ticker</th>
+                <th>Market Cap (B)</th>
+                <th>Dividend Yield (%)</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for s in stocks %}
+            <tr style="background:{{ s.bg_color }}20;">
+                <td>{{ s.symbol }}</td>
+                <td>{{ "%.2f"|format(s.marketCap / 1e9) }}</td>
+                <td>{{ dividend_yields[loop.index0] }}%</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+<script>
+    const symbols = {{ symbols|tojson }};
+    const marketCaps = {{ market_caps|tojson }};
+    const dividendYields = {{ dividend_yields|tojson }};
+    const colors = {{ colors|tojson }};
+    const correlationMatrix = {{ correlation_matrix|tojson }};
+    const historicalPrices = {{ historical_prices|tojson }};
+    const historicalDates = {{ historical_dates|tojson }};
+
+    // ===== Market Cap Pie Chart =====
+    Plotly.newPlot('marketCapChart', [{
+        values: marketCaps,
+        labels: symbols,
+        type: 'pie',
+        marker: { colors: colors },
+        textinfo: 'label+percent'
+    }], {
+        title: 'Market Cap Distribution',
+        plot_bgcolor: '#111',
+        paper_bgcolor: '#111',
+        font: { color: '#00e5ff' }
+    });
+
+    // ===== Dividend Yield Bar Chart =====
+    Plotly.newPlot('dividendChart', [{
+        x: symbols,
+        y: dividendYields,
+        type: 'bar',
+        marker: { color: colors },
+        text: dividendYields.map(d => `${d.toFixed(2)}%`),
+        textposition: 'auto'
+    }], {
+        title: 'Dividend Yield (%)',
+        plot_bgcolor: '#111',
+        paper_bgcolor: '#111',
+        font: { color: '#00e5ff' }
+    });
+
+    // ===== Correlation Heatmap =====
+    // ===== Correlation Heatmap =====
+    Plotly.newPlot('corrChart', [{
+        z: correlationMatrix,
+        x: symbols,
+        y: symbols,
+        type: 'heatmap',
+        colorscale: 'Viridis',
+        colorbar: { title: 'Correlation' },
+        text: correlationMatrix.map(row => row.map(val => val.toFixed(2))), // ใส่ตัวเลข
+        texttemplate: "%{text}", // แสดงตัวเลขบน heatmap
+        textfont: {
+            color: 'white', // สีตัวเลข
+            size: 12
+        }
+    }], {
+        title: 'Stock Price Correlation',
+        plot_bgcolor: '#111',
+        paper_bgcolor: '#111',
+        font: { color: '#00e5ff' }
+    });
+
+
+    // ===== Historical Price Line Chart =====
+    const histTraces = symbols.map((s, i) => ({
+        x: historicalDates,
+        y: historicalPrices[i],
+        name: s,
+        type: 'scatter',
+        mode: 'lines'
+    }));
+
+    Plotly.newPlot('histChart', histTraces, {
+        title: 'Historical Prices',
+        plot_bgcolor: '#111',
+        paper_bgcolor: '#111',
+        font: { color: '#00e5ff' }
+    });
+</script>
 {% endblock %}

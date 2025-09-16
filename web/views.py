@@ -207,15 +207,6 @@ def compare_models(symbol):
 
 
 
-
-@views.route('/dashboard')
-def dashboard():
-    return render_template('dashboard.html')
-
-
-
-
-
 @views.route('/stock/analytics/<symbol>')
 def stock_analytics(symbol):
     stock = Stock.query.filter_by(symbol=symbol).first()
@@ -283,4 +274,76 @@ def stock_analytics(symbol):
         net_income=net_income_dict,
         hist_prices=hist_full.reset_index().to_dict(orient='list') if hist_full is not None else {},
         relative_perf=relative_perf.reset_index().to_dict(orient='list') if relative_perf is not None else {}
+    )
+
+
+
+
+@views.route('/dashboard')
+def dashboard():
+    stocks = Stock.query.all()
+    
+    symbols = []
+    market_caps = []
+    colors = []
+    dividend_yields = []
+
+    hist_prices_dict = {}
+
+    # ปีนี้
+    year_start = datetime(datetime.now().year, 1, 1)
+
+    for s in stocks:
+        symbols.append(s.symbol)
+        market_caps.append(s.marketCap)
+        colors.append(s.bg_color)
+
+        # Dividend Yield
+        try:
+            info = yf.Ticker(s.symbol).info
+            dy_raw = info.get("dividendYield", 0) or 0
+            dy = round(dy_raw*100,2) if dy_raw < 1 else round(dy_raw,2)
+        except:
+            dy = 0
+        dividend_yields.append(dy)
+
+        # Historical prices ปีนี้
+        try:
+            hist = yf.Ticker(s.symbol).history(start=year_start)['Close']
+            hist_prices_dict[s.symbol] = hist
+        except:
+            hist_prices_dict[s.symbol] = pd.Series([0])
+
+    # สร้าง all_dates
+    all_dates = sorted(set(date.date() for s in hist_prices_dict.values() for date in s.index))
+    historical_dates = [str(d) for d in all_dates]
+
+    # จัด historical_prices ให้ตรงกัน
+    historical_prices = []
+    for sym in symbols:
+        series = hist_prices_dict[sym]
+        prices_aligned = []
+        last_val = series.iloc[0] if not series.empty else 0
+        idx = 0
+        for d in all_dates:
+            if idx < len(series) and series.index[idx].date() == d:
+                last_val = series.iloc[idx]
+                idx += 1
+            prices_aligned.append(last_val)
+        historical_prices.append(prices_aligned)
+
+    # สร้าง correlation matrix
+    df_hist = pd.DataFrame({s: historical_prices[i] for i, s in enumerate(symbols)})
+    correlation_matrix = df_hist.corr().values.tolist()
+
+    return render_template(
+        'dashboard.html',
+        stocks=stocks,
+        symbols=symbols,
+        market_caps=market_caps,
+        colors=colors,
+        dividend_yields=dividend_yields,
+        correlation_matrix=correlation_matrix,
+        historical_prices=historical_prices,
+        historical_dates=historical_dates
     )
