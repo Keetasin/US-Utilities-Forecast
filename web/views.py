@@ -213,7 +213,8 @@ def stock_analytics(symbol):
     if not stock:
         return "Stock not found", 404
 
-    last_updated = stock.last_updated.strftime("%Y-%m-%d %H:%M") if stock.last_updated else "N/A"
+    last_updated = stock.last_updated.strftime("%d/%m/%Y") if stock.last_updated else "N/A"
+
 
     import yfinance as yf
     try:
@@ -277,6 +278,12 @@ def stock_analytics(symbol):
 
 
 
+# ===== Flask View =====
+from flask import render_template
+from datetime import datetime
+import yfinance as yf
+import pandas as pd
+
 @views.route('/dashboard')
 def dashboard():
     stocks = Stock.query.all()
@@ -285,10 +292,15 @@ def dashboard():
     market_caps = []
     colors = []
     dividend_yields = []
+    pe_ratios = []
+    betas = []
+    pb_ratios = []
+    high_52w = []
+    low_52w = []
+    ytd_changes = []
+    avg_volumes = []
 
     hist_prices_dict = {}
-
-    # ปีนี้
     year_start = datetime(datetime.now().year, 1, 1)
 
     for s in stocks:
@@ -296,14 +308,26 @@ def dashboard():
         market_caps.append(s.marketCap)
         colors.append(s.bg_color)
 
-        # Dividend Yield
+        # ข้อมูลจาก Yahoo Finance
         try:
             info = yf.Ticker(s.symbol).info
-            dy_raw = info.get("dividendYield", 0) or 0
-            dy = round(dy_raw*100,2) if dy_raw < 1 else round(dy_raw,2)
         except:
-            dy = 0
+            info = {}
+
+        # Dividend Yield
+        dy_raw = info.get("dividendYield", 0) or 0
+        dy = round(dy_raw*100,2) if dy_raw < 1 else round(dy_raw,2)
         dividend_yields.append(dy)
+
+        # P/E, Beta, P/B
+        pe_ratios.append(round(info.get("trailingPE", 0) or 0,2))
+        betas.append(round(info.get("beta", 0) or 0,2))
+        pb_ratios.append(round(info.get("priceToBook", 0) or 0,2))
+
+        # 52W High/Low, Avg Volume
+        high_52w.append(round(info.get("fiftyTwoWeekHigh",0) or 0,2))
+        low_52w.append(round(info.get("fiftyTwoWeekLow",0) or 0,2))
+        avg_volumes.append(round(info.get("averageVolume",0) or 0))
 
         # Historical prices ปีนี้
         try:
@@ -311,6 +335,13 @@ def dashboard():
             hist_prices_dict[s.symbol] = hist
         except:
             hist_prices_dict[s.symbol] = pd.Series([0])
+
+        # YTD Change (%)
+        if not hist_prices_dict[s.symbol].empty:
+            ytd = round((hist_prices_dict[s.symbol].iloc[-1] - hist_prices_dict[s.symbol].iloc[0]) / hist_prices_dict[s.symbol].iloc[0] * 100,2)
+        else:
+            ytd = 0
+        ytd_changes.append(ytd)
 
     # สร้าง all_dates
     all_dates = sorted(set(date.date() for s in hist_prices_dict.values() for date in s.index))
@@ -330,10 +361,6 @@ def dashboard():
             prices_aligned.append(last_val)
         historical_prices.append(prices_aligned)
 
-    # สร้าง correlation matrix
-    df_hist = pd.DataFrame({s: historical_prices[i] for i, s in enumerate(symbols)})
-    correlation_matrix = df_hist.corr().values.tolist()
-
     return render_template(
         'dashboard.html',
         stocks=stocks,
@@ -341,7 +368,13 @@ def dashboard():
         market_caps=market_caps,
         colors=colors,
         dividend_yields=dividend_yields,
-        correlation_matrix=correlation_matrix,
+        pe_ratios=pe_ratios,
+        betas=betas,
+        pb_ratios=pb_ratios,
+        high_52w=high_52w,
+        low_52w=low_52w,
+        ytd_changes=ytd_changes,
+        avg_volumes=avg_volumes,
         historical_prices=historical_prices,
         historical_dates=historical_dates
     )
