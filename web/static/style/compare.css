@@ -7,3 +7,64 @@
 .toolbar { margin: 10px 0 20px; display:flex; gap:10px; align-items:center; }
 .btn { padding:8px 12px; border-radius:10px; border:1px solid #444; background:#111; color:#fff; text-decoration:none; }
 .btn-primary { background:#00d1ff; color:#000; border: none; font-weight:700; }
+
+
+/* ===== Toolbar & Filters for Compare Models ===== */
+.compare-toolbar, .compare-filters {
+    display: flex;
+    gap: 15px;
+    align-items: center;
+    justify-content: center;
+    margin: 15px 0;
+    flex-wrap: wrap;
+}
+
+.compare-toolbar a.btn {
+    padding: 10px 16px;
+    font-size: 1rem;
+    border-radius: 8px;
+    border: 1px solid #444;
+    background-color: #111;
+    color: #00e5ff;
+    text-decoration: none;
+    font-weight:600;
+    transition: all 0.3s;
+}
+
+.compare-toolbar a.btn:hover,
+.compare-filters select:hover {
+    border-color: #00e5ff;
+    box-shadow: 0 0 10px rgba(0, 229, 255, 0.5);
+}
+
+.compare-toolbar a.btn.active {
+    background-color: #00e5ff;
+    color: #000;
+    border: 1px solid #00ffff;
+    box-shadow: 0 0 20px #00e5ff;
+}
+
+/* Dropdown */
+.compare-filters select {
+    display: inline-block;
+    padding: 10px 15px;
+    font-size: 1rem;
+    border-radius: 8px;
+    border: 1px solid #444;
+    background-color: #111;
+    color: #00e5ff;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .compare-toolbar, .compare-filters {
+        flex-direction: column;
+        width: 95%;
+        gap: 10px;
+    }
+    .compare-toolbar a.btn, .compare-filters select {
+        width: 100%;
+    }
+}

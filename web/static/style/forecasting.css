@@ -187,6 +187,44 @@ body::before {
     box-shadow: 0 0 20px #00e5ff; /* glow ชัด */
 }
 
+/* ===== Chart Controls (reused for forecasting filters) ===== */
+.forecasting-filters {
+    display: flex;
+    gap: 15px;
+    align-items: center;
+    justify-content: center;
+    margin: 20px 0;
+    flex-wrap: wrap;
+}
+
+.forecasting-filters select {
+    display: inline-block;
+    padding: 10px 15px;
+    font-size: 1rem;
+    border-radius: 8px;
+    border: 1px solid #444;
+    background-color: #111;
+    color: #00e5ff;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.forecasting-filters select:hover {
+    border-color: #00e5ff;
+    box-shadow: 0 0 10px rgba(0, 229, 255, 0.5);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .forecasting-filters {
+        width: 95%;
+        flex-direction: column;
+        gap: 10px;
+    }
+    .forecasting-filters select {
+        width: 100%;
+    }
+}
 
 /* Responsive for small screens */
 @media (max-width: 768px) {

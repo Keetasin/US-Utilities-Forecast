@@ -6,22 +6,27 @@
 
 <h2 class="title">Compare Models — {{ symbol }}</h2>
 
-<div class="toolbar">
-  <a class="btn" href="{{ url_for('views.forecasting', symbol=symbol, model='arima', steps=request.args.get('steps',steps)) }}">ARIMA</a>
-  <a class="btn" href="{{ url_for('views.forecasting', symbol=symbol, model='sarima', steps=request.args.get('steps',steps)) }}">SARIMA</a>
-  <a class="btn" href="{{ url_for('views.forecasting', symbol=symbol, model='sarimax', steps=request.args.get('steps',steps)) }}">SARIMAX</a>
-  <a class="btn" href="{{ url_for('views.forecasting', symbol=symbol, model='lstm', steps=request.args.get('steps',steps)) }}">LSTM</a>
+<!-- Toolbar: Models -->
+<div class="chart-controls compare-toolbar">
+  <a class="btn {{ 'active' if request.args.get('model')=='arima' else '' }}"
+     href="{{ url_for('views.forecasting', symbol=symbol, model='arima', steps=request.args.get('steps',steps)) }}">ARIMA</a>
+  <a class="btn {{ 'active' if request.args.get('model')=='sarima' else '' }}"
+     href="{{ url_for('views.forecasting', symbol=symbol, model='sarima', steps=request.args.get('steps',steps)) }}">SARIMA</a>
+  <a class="btn {{ 'active' if request.args.get('model')=='sarimax' else '' }}"
+     href="{{ url_for('views.forecasting', symbol=symbol, model='sarimax', steps=request.args.get('steps',steps)) }}">SARIMAX</a>
+  <a class="btn {{ 'active' if request.args.get('model')=='lstm' else '' }}"
+     href="{{ url_for('views.forecasting', symbol=symbol, model='lstm', steps=request.args.get('steps',steps)) }}">LSTM</a>
 </div>
 
 <!-- Dropdown horizon -->
-<form method="get" action="">
-  <label for="steps">Predict horizon:</label>
+<div class="chart-controls compare-filters">
   <select name="steps" id="steps" onchange="this.form.submit()">
     <option value="7"   {{ 'selected' if steps==7 else '' }}>1 Week</option>
     <option value="90"  {{ 'selected' if steps==90 else '' }}>3 Months</option>
     <option value="365" {{ 'selected' if steps==365 else '' }}>1 Year</option>
   </select>
-</form>
+</div>
+
 
 <div class="card">
   <p><strong>Last Price:</strong> ${{ last_price }}</p>

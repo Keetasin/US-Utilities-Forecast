@@ -25,13 +25,15 @@
 
   <!-- Dropdown horizon -->
   <form method="get" action="">
-    <label for="steps">Predict horizon:</label>
-    <select name="steps" id="steps" onchange="this.form.submit()">
-      <option value="7"   {{ 'selected' if steps==7 else '' }}>1 Week</option>
-      <option value="90"  {{ 'selected' if steps==90 else '' }}>3 Months</option>
-      <option value="365" {{ 'selected' if steps==365 else '' }}>1 Year</option>
-    </select>
+    <div class="chart-controls forecasting-filters">
+        <select name="steps" id="steps" onchange="this.form.submit()">
+          <option value="7"   {{ 'selected' if steps==7 else '' }}>1 Week</option>
+          <option value="90"  {{ 'selected' if steps==90 else '' }}>3 Months</option>
+          <option value="365" {{ 'selected' if steps==365 else '' }}>1 Year</option>
+        </select>
+    </div>
   </form>
+  
 {% endif %}
 
 
@@ -76,7 +78,7 @@
     const backtestPrices   = Array(Math.max(historicalPrices.length - backtestData.length, 0)).fill(null)
                               .concat(backtestData.map(d=>d.price));
     const forecastPrices   = Array(historicalPrices.length).fill(null)
-                              .concat(forecastData.map(d=>d.price));
+                               .concat(forecastData.map(d=>d.price));
 
     new Chart(ctx, {
       type: 'line',
