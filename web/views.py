@@ -1,11 +1,11 @@
-from flask import Blueprint, render_template, request
+from flask import Blueprint, render_template, request, current_app
 from . import db
 from .models import Stock, StockNews, StockForecast
 from .utils.stock import TICKERS, fetch_and_update_stock, update_stock_data
 from .utils.news import fetch_news, summarize_news_for_investor
 from .utils.forecast import (ensure_datetime_freq, series_to_chart_pairs_safe,
                              get_period_by_model, backtest_last_n_days,
-                             future_forecast, to_scalar)
+                             future_forecast, to_scalar, update_forecast)
 
 import yfinance as yf
 import pytz
@@ -15,6 +15,9 @@ from datetime import datetime
 
 views = Blueprint('views', __name__)
 
+# ---------------------------
+# Home & Heatmap
+# ---------------------------
 @views.route('/')
 def home():
     return render_template('home.html')
@@ -26,7 +29,6 @@ def heatmap():
     if data:
         last_updated_utc = max([s.last_updated for s in data if s.last_updated])
         if last_updated_utc:
-            # แปลงให้ timezone-aware ก่อน
             if last_updated_utc.tzinfo is None:
                 last_updated_utc = last_updated_utc.replace(tzinfo=pytz.UTC)
             tz_th = pytz.timezone("Asia/Bangkok")
@@ -51,7 +53,9 @@ def stock_detail(symbol):
     market = MARKET_MAPPING.get(symbol, "NASDAQ")  # default NASDAQ
     return render_template("stock_detail.html", stock=stock, market=market)
 
-
+# ---------------------------
+# News
+# ---------------------------
 @views.route('/news/<symbol>')
 def news(symbol):
     sn = StockNews.query.filter_by(symbol=symbol).first()
@@ -63,30 +67,33 @@ def news(symbol):
         summary = "No news yet. Will update at 20:00."
     return render_template("news.html", symbol=symbol, news=news_list[:5], summary=summary)
 
+# ---------------------------
+# Forecasting (Auto refresh)
+# ---------------------------
 @views.route('/forecasting/<symbol>/<model>')
 def forecasting(symbol, model):
     model = (model or "arima").lower()
-    
+    steps = int(request.args.get("steps", 7))   # horizon (7, 90, 365)
+
+    # 👉 auto refresh forecast ก่อน query DB
+    update_forecast(current_app, [symbol], models=[model], steps=steps)
+
     # โหลด forecast จาก DB
     fc = StockForecast.query.filter_by(symbol=symbol, model=model).first()
-    
     if not fc:
         return render_template(
             "forecasting.html",
             has_data=False,
             symbol=symbol,
             model=model.lower(),
-            error="No forecast yet. Will update at 20:00."
+            error="No forecast yet. Try again later.",
+            steps=steps
         )
 
-    # Forecast (future)
     forecast_json = fc.forecast_json
 
-    # Last price จาก historical หรือ forecast แรก
-    last_price_val = getattr(fc, "last_price", None)
-    if last_price_val is None:
-        # fallback: ใช้ราคาของ forecast วันแรก
-        last_price_val = forecast_json[0]["price"] if forecast_json else 0.0
+    # Last price
+    last_price_val = getattr(fc, "last_price", None) or (forecast_json[0]["price"] if forecast_json else 0.0)
 
     # Trend
     trend = {
@@ -94,10 +101,9 @@ def forecasting(symbol, model):
         "icon": "🔼" if forecast_json[-1]["price"] > last_price_val else "🔽"
     }
 
-    # Historical data: fallback ถ้า DB ไม่มี ให้สร้าง dummy last 90 วัน
-    historical = getattr(fc, "historical_json", None)
-    if not historical or len(historical) == 0:
-        # ดึงข้อมูลจาก yfinance
+    # Historical fallback
+    historical = getattr(fc, "historical_json", None) or []
+    if not historical:
         try:
             period = get_period_by_model(model)
             full_close = yf.download(symbol, period=period, progress=False, auto_adjust=True)['Close'].dropna()
@@ -107,19 +113,23 @@ def forecasting(symbol, model):
         except:
             historical = []
 
-    # Backtest: fallback ถ้า DB ไม่มี
-    backtest = getattr(fc, "backtest_json", None)
+    # Backtest fallback
+    backtest = getattr(fc, "backtest_json", None) or []
     backtest_mae = getattr(fc, "backtest_mae", None)
-    if not backtest or len(backtest) == 0:
+    if not backtest:
         try:
-            # สร้าง backtest 7 วันล่าสุด
             s = pd.Series([d["price"] for d in historical], index=pd.to_datetime([d["date"] for d in historical]))
-            bt, mae = backtest_last_n_days(s, model_name=model, steps=7)
+            exog = None
+            if model == "sarimax":
+                oil = yf.download("CL=F", period="3y", progress=False, auto_adjust=True)['Close'].dropna()
+                oil = ensure_datetime_freq(oil)
+                oil = oil.reindex(s.index).fillna(method="ffill")
+                exog = oil
+            bt, mae = backtest_last_n_days(s, model_name=model, steps=steps, exog=exog)
             backtest = series_to_chart_pairs_safe(bt)
             backtest_mae = mae
         except:
-            backtest = []
-            backtest_mae = 0.0
+            backtest, backtest_mae = [], 0.0
 
     backtest_mae_pct = (backtest_mae / last_price_val * 100.0) if last_price_val else 0.0
 
@@ -135,48 +145,44 @@ def forecasting(symbol, model):
         last_price=round(last_price_val, 2),
         trend=trend,
         has_data=True,
+        steps=steps,
         last_updated=fc.updated_at.strftime("%Y-%m-%d %H:%M")
     )
 
+# ---------------------------
+# Compare
+# ---------------------------
 @views.route('/compare/<symbol>')
 def compare_models(symbol):
-    results = {}
-    historical = []
-    last_price = None
-    models = ["arima", "sarima", "lstm"]
+    steps = int(request.args.get("steps", 7))
+    results, historical, last_price = {}, [], None
+    models = ["arima", "sarima", "sarimax", "lstm"]
 
-    # พยายามดึง historical จาก DB ตัวแรก
     fc_records = StockForecast.query.filter_by(symbol=symbol).all()
     if fc_records:
         first_fc = fc_records[0]
         historical = getattr(first_fc, "historical_json", []) or []
 
-    # ถ้า DB ไม่มี historical ให้ fallback ไปดึงจาก yfinance
-    if not historical or len(historical) == 0:
+    if not historical:
         try:
             long_close = yf.download(symbol, period="10y", progress=False, auto_adjust=True)['Close'].dropna()
             long_close = ensure_datetime_freq(long_close)
             historical = series_to_chart_pairs_safe(long_close.tail(30))
             last_price = round(to_scalar(long_close.iloc[-1]),2)
-        except Exception as e:
-            print("Error fetching long history:", e)
-            historical = []
-            last_price = None
+        except:
+            historical, last_price = [], None
     else:
         last_price = round(historical[-1]["price"],2) if historical else None
 
-    # ดึง forecast/backtest จาก DB
     for m in models:
         fc = StockForecast.query.filter_by(symbol=symbol, model=m).first()
         if not fc:
             results[m] = {"ok": False, "error": f"No forecast for {m.upper()}"}
             continue
-
         forecast_json = fc.forecast_json or []
         backtest_json = getattr(fc, "backtest_json", []) or []
         backtest_mae = getattr(fc, "backtest_mae", 0)
         backtest_mae_pct = (backtest_mae / last_price * 100.0) if last_price else 0.0
-
         results[m] = {
             "ok": True,
             "forecast": forecast_json,
@@ -187,7 +193,6 @@ def compare_models(symbol):
             "forecast_last": round(forecast_json[-1]["price"],2) if forecast_json else None
         }
 
-    # หา best model ตาม MAE
     best_model, best_mae = None, None
     for m in models:
         if results.get(m, {}).get("ok"):
@@ -202,11 +207,13 @@ def compare_models(symbol):
         last_price=last_price,
         results=results,
         best_model=best_model,
-        best_mae=best_mae
+        best_mae=best_mae,
+        steps=steps
     )
 
-
-
+# ---------------------------
+# Stock Analytics
+# ---------------------------
 @views.route('/stock/analytics/<symbol>')
 def stock_analytics(symbol):
     stock = Stock.query.filter_by(symbol=symbol).first()
@@ -215,32 +222,26 @@ def stock_analytics(symbol):
 
     last_updated = stock.last_updated.strftime("%d/%m/%Y") if stock.last_updated else "N/A"
 
-
-    import yfinance as yf
     try:
         stk_yf = yf.Ticker(symbol)
         info = stk_yf.info
 
-        # -------- Dividend --------
         dividends = stk_yf.dividends
         dividend_years = dividends.resample('Y').sum()
         dividend_years_dict = {d.strftime("%Y"): float(v) for d, v in dividend_years.items()}
 
-        # -------- Revenue & Net Income --------
         fin = stk_yf.financials
         revenue = fin.loc["Total Revenue"].sort_index() if "Total Revenue" in fin.index else None
         net_income = fin.loc["Net Income"].sort_index() if "Net Income" in fin.index else None
         revenue_dict = {str(d): float(v) for d, v in revenue.items()} if revenue is not None else {}
         net_income_dict = {str(d): float(v) for d, v in net_income.items()} if net_income is not None else {}
 
-        # -------- Moving Averages & Volatility --------
         hist_full = stk_yf.history(period="5y")
         hist_full['MA50'] = hist_full['Close'].rolling(50).mean()
         hist_full['MA200'] = hist_full['Close'].rolling(200).mean()
         hist_full['Returns'] = hist_full['Close'].pct_change()
         hist_full['Volatility'] = hist_full['Returns'].rolling(20).std() * 100
 
-        # -------- Relative Perf vs S&P500 --------
         sp500 = yf.Ticker("^GSPC").history(period="5y")['Close']
         relative_perf = (hist_full['Close'] / hist_full['Close'].iloc[0] * 100) - (sp500 / sp500.iloc[0] * 100)
 
@@ -250,7 +251,6 @@ def stock_analytics(symbol):
         dividend_years_dict, revenue_dict, net_income_dict = {}, {}, {}
         hist_full, relative_perf = {}, {}
 
-    # Dividend Yield %
     div_yield_raw = info.get("dividendYield", 0) or 0
     div_yield = round(div_yield_raw*100,2) if div_yield_raw < 1 else round(div_yield_raw,2)
 
@@ -275,30 +275,17 @@ def stock_analytics(symbol):
         relative_perf=relative_perf.reset_index().to_dict(orient='list') if relative_perf is not None else {}
     )
 
-
-
-
-# ===== Flask View =====
-from flask import render_template
+# ---------------------------
+# Dashboard
+# ---------------------------
 from datetime import datetime
-import yfinance as yf
-import pandas as pd
-
 @views.route('/dashboard')
 def dashboard():
     stocks = Stock.query.all()
     
-    symbols = []
-    market_caps = []
-    colors = []
-    dividend_yields = []
-    pe_ratios = []
-    betas = []
-    pb_ratios = []
-    high_52w = []
-    low_52w = []
-    ytd_changes = []
-    avg_volumes = []
+    symbols, market_caps, colors = [], [], []
+    dividend_yields, pe_ratios, betas, pb_ratios = [], [], [], []
+    high_52w, low_52w, ytd_changes, avg_volumes = [], [], [], []
 
     hist_prices_dict = {}
     year_start = datetime(datetime.now().year, 1, 1)
@@ -308,52 +295,42 @@ def dashboard():
         market_caps.append(s.marketCap)
         colors.append(s.bg_color)
 
-        # ข้อมูลจาก Yahoo Finance
         try:
             info = yf.Ticker(s.symbol).info
         except:
             info = {}
 
-        # Dividend Yield
         dy_raw = info.get("dividendYield", 0) or 0
         dy = round(dy_raw*100,2) if dy_raw < 1 else round(dy_raw,2)
         dividend_yields.append(dy)
 
-        # P/E, Beta, P/B
         pe_ratios.append(round(info.get("trailingPE", 0) or 0,2))
         betas.append(round(info.get("beta", 0) or 0,2))
         pb_ratios.append(round(info.get("priceToBook", 0) or 0,2))
 
-        # 52W High/Low, Avg Volume
         high_52w.append(round(info.get("fiftyTwoWeekHigh",0) or 0,2))
         low_52w.append(round(info.get("fiftyTwoWeekLow",0) or 0,2))
         avg_volumes.append(round(info.get("averageVolume",0) or 0))
 
-        # Historical prices ปีนี้
         try:
             hist = yf.Ticker(s.symbol).history(start=year_start)['Close']
             hist_prices_dict[s.symbol] = hist
         except:
             hist_prices_dict[s.symbol] = pd.Series([0])
 
-        # YTD Change (%)
         if not hist_prices_dict[s.symbol].empty:
             ytd = round((hist_prices_dict[s.symbol].iloc[-1] - hist_prices_dict[s.symbol].iloc[0]) / hist_prices_dict[s.symbol].iloc[0] * 100,2)
         else:
             ytd = 0
         ytd_changes.append(ytd)
 
-    # สร้าง all_dates
     all_dates = sorted(set(date.date() for s in hist_prices_dict.values() for date in s.index))
     historical_dates = [str(d) for d in all_dates]
 
-    # จัด historical_prices ให้ตรงกัน
     historical_prices = []
     for sym in symbols:
         series = hist_prices_dict[sym]
-        prices_aligned = []
-        last_val = series.iloc[0] if not series.empty else 0
-        idx = 0
+        prices_aligned, last_val, idx = [], (series.iloc[0] if not series.empty else 0), 0
         for d in all_dates:
             if idx < len(series) and series.index[idx].date() == d:
                 last_val = series.iloc[idx]

@@ -7,15 +7,28 @@
 <h2 class="title">Compare Models — {{ symbol }}</h2>
 
 <div class="toolbar">
-  <a class="btn" href="{{ url_for('views.forecasting', symbol=symbol, model='arima') }}">ARIMA</a>
-  <a class="btn" href="{{ url_for('views.forecasting', symbol=symbol, model='sarima') }}">SARIMA</a>
-  <a class="btn" href="{{ url_for('views.forecasting', symbol=symbol, model='lstm') }}">LSTM</a>
+  <a class="btn" href="{{ url_for('views.forecasting', symbol=symbol, model='arima', steps=request.args.get('steps',steps)) }}">ARIMA</a>
+  <a class="btn" href="{{ url_for('views.forecasting', symbol=symbol, model='sarima', steps=request.args.get('steps',steps)) }}">SARIMA</a>
+  <a class="btn" href="{{ url_for('views.forecasting', symbol=symbol, model='sarimax', steps=request.args.get('steps',steps)) }}">SARIMAX</a>
+  <a class="btn" href="{{ url_for('views.forecasting', symbol=symbol, model='lstm', steps=request.args.get('steps',steps)) }}">LSTM</a>
 </div>
+
+<!-- Dropdown horizon -->
+<form method="get" action="">
+  <label for="steps">Predict horizon:</label>
+  <select name="steps" id="steps" onchange="this.form.submit()">
+    <option value="7"   {{ 'selected' if steps==7 else '' }}>1 Week</option>
+    <option value="90"  {{ 'selected' if steps==90 else '' }}>3 Months</option>
+    <option value="365" {{ 'selected' if steps==365 else '' }}>1 Year</option>
+  </select>
+</form>
 
 <div class="card">
   <p><strong>Last Price:</strong> ${{ last_price }}</p>
   {% if best_model %}
-    <p><strong>Best (lowest MAE):</strong> <span class="badge badge-best">{{ best_model }}</span> — ${{ best_mae | round(2) }}</p>
+    <p><strong>Best (lowest MAE):</strong> 
+      <span class="badge badge-best">{{ best_model }}</span> — ${{ best_mae | round(2) }}
+    </p>
   {% endif %}
 </div>
 
@@ -24,27 +37,30 @@
     <thead>
       <tr>
         <th>Model</th>
-        <th>Period</th>
-        <th>Backtest MAE (7d)</th>
-        <th>7-Day Forecast (last)</th>
+        <th>Backtest MAE ({{ steps }}d)</th>
+        <th>Backtest % Error</th>
+        <th>{{ steps }}-Day Forecast (last)</th>
         <th>Status</th>
       </tr>
     </thead>
     <tbody>
-      {% for m in ['arima','sarima','lstm'] %}
+      {% for m in ['arima','sarima','sarimax','lstm'] %}
         <tr>
           <td>{{ m.upper() }}</td>
-          <td>{{ results[m].period if results[m].ok else '-' }}</td>
           <td>
             {% if results[m].ok %} ${{ results[m].backtest_mae | round(2) }}
             {% else %} - {% endif %}
           </td>
-            <td>
+          <td>
             {% if results[m].ok %}
-                ${{ results[m].backtest_mae | round(2) }}
-                (<span style="opacity:.8;">~{{ results[m].backtest_mae_pct | round(2) }}%</span>)
+              ~{{ results[m].backtest_mae_pct | round(2) }}%
             {% else %} - {% endif %}
-            </td>
+          </td>
+          <td>
+            {% if results[m].ok %}
+              ${{ results[m].forecast_last }}
+            {% else %} - {% endif %}
+          </td>
           <td>
             {% if results[m].ok %}
               {% if best_model == m.upper() %}
@@ -77,13 +93,10 @@
 
   const histLabels = historical.map(d => d.date);
   const histPrices = historical.map(d => d.price);
-
-  // เอาวันสุดท้ายของ historical ไว้เป็นจุดแบ่ง
   const baseLen = histPrices.length;
 
-  // สร้าง labels อนาคตจากโมเดลแรกที่ ok
   function pickFutureLabels() {
-    for (const k of ['arima','sarima','lstm']) {
+    for (const k of ['arima','sarima','sarimax','lstm']) {
       if (r[k] && r[k].ok) return r[k].forecast.map(d=>d.date);
     }
     return [];
@@ -97,9 +110,10 @@
     return Array(baseLen).fill(null).concat(vals);
   }
 
-  const arimaF = padForecast('arima');
-  const sarimaF = padForecast('sarima');
-  const lstmF  = padForecast('lstm');
+  const arimaF   = padForecast('arima');
+  const sarimaF  = padForecast('sarima');
+  const sarimaxF = padForecast('sarimax');
+  const lstmF    = padForecast('lstm');
 
   new Chart(ctx, {
     type: 'line',
@@ -112,6 +126,8 @@
           borderColor:'rgb(255,204,0)', borderDash:[6,6], borderWidth:2, pointRadius:2 },
         { label: 'SARIMA Forecast', data: sarimaF,
           borderColor:'rgb(0,255,132)', borderDash:[6,6], borderWidth:2, pointRadius:2 },
+        { label: 'SARIMAX Forecast', data: sarimaxF,
+          borderColor:'rgb(153,102,255)', borderDash:[6,6], borderWidth:2, pointRadius:2 },
         { label: 'LSTM Forecast', data: lstmF,
           borderColor:'rgb(255,99,132)', borderDash:[6,6], borderWidth:2, pointRadius:2 },
       ]

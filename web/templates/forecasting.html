@@ -9,31 +9,43 @@
 {% if symbol %}
   <h3 class="title" style="font-size:28px;">{{ symbol }} — {{ model or 'ARIMA' }}</h3>
 
-  <!-- ปุ่มสลับโมเดล และเปรียบเทียบ -->
+  <!-- ปุ่มสลับโมเดล -->
   <div class="model-switch">
     <a class="back-link {{ 'active' if model|lower=='arima' else '' }}" 
-       href="{{ url_for('views.forecasting', symbol=symbol, model='arima') }}">ARIMA</a>
+       href="{{ url_for('views.forecasting', symbol=symbol, model='arima', steps=request.args.get('steps',steps)) }}">ARIMA</a>
     <a class="back-link {{ 'active' if model|lower=='sarima' else '' }}" 
-       href="{{ url_for('views.forecasting', symbol=symbol, model='sarima') }}">SARIMA</a>
+       href="{{ url_for('views.forecasting', symbol=symbol, model='sarima', steps=request.args.get('steps',steps)) }}">SARIMA</a>
+    <a class="back-link {{ 'active' if model|lower=='sarimax' else '' }}" 
+       href="{{ url_for('views.forecasting', symbol=symbol, model='sarimax', steps=request.args.get('steps',steps)) }}">SARIMAX</a>
     <a class="back-link {{ 'active' if model|lower=='lstm' else '' }}" 
-       href="{{ url_for('views.forecasting', symbol=symbol, model='lstm') }}">LSTM</a>
+       href="{{ url_for('views.forecasting', symbol=symbol, model='lstm', steps=request.args.get('steps',steps)) }}">LSTM</a>
     <a class="back-link" 
-       href="{{ url_for('views.compare_models', symbol=symbol) }}">🔀 Compare 3 Models</a>
+       href="{{ url_for('views.compare_models', symbol=symbol, steps=request.args.get('steps',steps)) }}">🔀 Compare Models</a>
   </div>
+
+  <!-- Dropdown horizon -->
+  <form method="get" action="">
+    <label for="steps">Predict horizon:</label>
+    <select name="steps" id="steps" onchange="this.form.submit()">
+      <option value="7"   {{ 'selected' if steps==7 else '' }}>1 Week</option>
+      <option value="90"  {{ 'selected' if steps==90 else '' }}>3 Months</option>
+      <option value="365" {{ 'selected' if steps==365 else '' }}>1 Year</option>
+    </select>
+  </form>
 {% endif %}
 
 
 {% if error %}
   <div class="summary-box" style="background:#401818;">
     <p>⚠️ {{ error }}</p>
-    <p>Tip: ลองเปลี่ยนโมเดลหรือช่วงเวลาโดยกดปุ่มด้านบน</p>
+    <p>Tip: ลองเปลี่ยนโมเดลหรือ horizon โดยกดปุ่มด้านบน</p>
   </div>
 {% endif %}
 
 {% if has_data %}
-    <div class="summary-box">
+  <div class="summary-box">
     <p>Last Price: ${{ last_price }}</p>
-    <p>7-Day Forecast: ${{ forecast[-1].price }}</p>
+    <p>{{ steps }}-Day Forecast: ${{ forecast[-1].price }}</p>
     <p>Trend: {{ trend.icon }} {{ trend.direction }}</p>
     <hr style="border-color:#444;">
     <p>
@@ -41,8 +53,7 @@
         ${{ backtest_mae | round(2) }}
         (~{{ backtest_mae_pct | round(2) }}%)
     </p>
-    </div>
-
+  </div>
 
   <div class="chart-container" style="position:relative; width:80%; max-width:900px; margin:auto;">
     <canvas id="forecastChart"></canvas>
@@ -81,7 +92,7 @@
             tension: 0.1
           },
           {
-            label: 'Backtest (last 7)',
+            label: `Backtest (last {{ steps }})`,
             data: backtestPrices,
             borderColor: 'rgb(0, 255, 132)',
             borderDash:[5,5],
@@ -89,7 +100,7 @@
             pointRadius:2
           },
           {
-            label: 'Future Forecast (next 7)',
+            label: `Future Forecast (next {{ steps }})`,
             data: forecastPrices,
             borderColor: 'rgb(255, 204, 0)',
             borderDash:[5,5],

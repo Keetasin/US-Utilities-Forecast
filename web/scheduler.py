@@ -14,7 +14,7 @@ stock_scheduler = BackgroundScheduler()
 
 def start_stock_scheduler(app):
     with app.app_context():
-        # 1️⃣ ตรวจสอบ DB ว่างหรือไม่
+        # 1) ตรวจสอบ DB ว่างหรือไม่
         from .models import Stock
         now_th = datetime.now(tz_th)
         market_open = time(9,30)
@@ -24,7 +24,6 @@ def start_stock_scheduler(app):
             print("Stock DB empty -> Fetch latest data")
             update_stock_data(app, force=True)
         else:
-            # ถ้าอยู่นอกตลาด แต่ข้อมูลไม่ล่าสุด -> update ครั้งเดียว
             latest = Stock.query.order_by(Stock.last_updated.desc()).first()
             if latest:
                 last_update_th = latest.last_updated.replace(tzinfo=pytz.UTC).astimezone(tz_th)
@@ -32,7 +31,7 @@ def start_stock_scheduler(app):
                     print("Stock data outdated -> Fetch once")
                     update_stock_data(app, force=True)
 
-    # 2️⃣ ถ้าอยู่ในช่วงตลาดเปิด -> run ทุก 1 นาที
+    # 2) อยู่ในช่วงตลาดเปิด -> run ทุก 1 นาที
     stock_scheduler.add_job(
         func=lambda: update_stock_data(app),
         trigger="interval",
@@ -89,26 +88,25 @@ def start_forecast_scheduler(app):
         today_10 = now_th.replace(hour=10, minute=0, second=0, microsecond=0)
         cutoff = today_10 if now_th >= today_10 else today_10 - timedelta(days=1)
 
-        from .utils.forecast import get_period_by_model
-        models = ["arima","sarima","lstm"]
+        # ✅ เพิ่ม SARIMAX เข้ามา
+        models = ["arima", "sarima", "sarimax", "lstm"]
 
         # Fetch latest forecast if DB empty or outdated
-        from .utils.stock import TICKERS
         for t in TICKERS:
             for m in models:
                 fc = StockForecast.query.filter_by(symbol=t, model=m).first()
                 if not fc:
                     print(f"Forecast DB empty -> Update {t}-{m}")
-                    update_forecast(app, [t], models=[m])
+                    update_forecast(app, [t], models=[m])   # ระบุโมเดลที่ต้องการชัดเจน
                 else:
                     last_update_th = fc.updated_at.replace(tzinfo=pytz.UTC).astimezone(tz_th)
                     if last_update_th < cutoff:
                         print(f"Forecast outdated -> Update {t}-{m}")
                         update_forecast(app, [t], models=[m])
 
-    # Schedule daily at 10:00
+    # Schedule daily at 10:00 (อัปเดตครบทุกโมเดลรวม SARIMAX)
     forecast_scheduler.add_job(
-        func=lambda: update_forecast(app, TICKERS),
+        func=lambda: update_forecast(app, TICKERS, models=["arima", "sarima", "sarimax", "lstm"]),
         trigger="cron",
         hour=10,
         minute=0,
