@@ -68,27 +68,30 @@ def news(symbol):
     return render_template("news.html", symbol=symbol, news=news_list[:5], summary=summary)
 
 # ---------------------------
-# Forecasting (Auto refresh)
+# Forecasting (DB first)
 # ---------------------------
 @views.route('/forecasting/<symbol>/<model>')
 def forecasting(symbol, model):
     model = (model or "arima").lower()
     steps = int(request.args.get("steps", 7))   # horizon (7, 90, 365)
 
-    # 👉 auto refresh forecast ก่อน query DB
-    update_forecast(current_app, [symbol], models=[model], steps=steps)
+    # ✅ 1) Query DB ก่อน
+    fc = StockForecast.query.filter_by(symbol=symbol, model=model, steps=steps).first()
 
-    # โหลด forecast จาก DB
-    fc = StockForecast.query.filter_by(symbol=symbol, model=model).first()
+    # ✅ 2) ถ้า DB ไม่มีข้อมูล → update_forecast แบบ on-demand
     if not fc:
-        return render_template(
-            "forecasting.html",
-            has_data=False,
-            symbol=symbol,
-            model=model.lower(),
-            error="No forecast yet. Try again later.",
-            steps=steps
-        )
+        update_forecast(current_app, [symbol], models=[model], steps_list=[steps])
+        fc = StockForecast.query.filter_by(symbol=symbol, model=model, steps=steps).first()
+
+        if not fc:  # ถ้า update แล้วยัง fail → return error
+            return render_template(
+                "forecasting.html",
+                has_data=False,
+                symbol=symbol,
+                model=model.lower(),
+                error="No forecast yet. Try again later.",
+                steps=steps
+            )
 
     forecast_json = fc.forecast_json
 
@@ -105,7 +108,7 @@ def forecasting(symbol, model):
     historical = getattr(fc, "historical_json", None) or []
     if not historical:
         try:
-            period = get_period_by_model(model)
+            period = get_period_by_model(model, steps)
             full_close = yf.download(symbol, period=period, progress=False, auto_adjust=True)['Close'].dropna()
             full_close = ensure_datetime_freq(full_close)
             historical = series_to_chart_pairs_safe(full_close.tail(30))

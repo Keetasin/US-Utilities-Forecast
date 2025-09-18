@@ -38,14 +38,25 @@ def series_to_chart_pairs_safe(series: pd.Series):
         s.index = idx
     return [{"date": d.strftime('%Y-%m-%d'), "price": round(to_scalar(p),2)} for d,p in zip(s.index, s.values)]
 
-def get_period_by_model(model_name: str) -> str:
+
+def get_period_by_model(model_name: str, steps: int) -> str:
+    """
+    กำหนด period ของ yfinance ตาม model และ horizon (steps)
+    """
     model_name = (model_name or "arima").lower()
-    return {
-        "arima": "6mo",
-        "sarima": "3y",
-        "sarimax": "3y",   # ให้ SARIMAX ช่วงข้อมูลเท่ากับ SARIMA
-        "lstm": "10y"
-    }.get(model_name, "6mo")
+
+    if model_name == "lstm":
+        return "10y"
+
+    # non-LSTM → ปรับตาม horizon
+    if steps <= 7:
+        return "6mo"   # 6 เดือนสำหรับ historical ของ 1 week
+    elif steps <= 180:
+        return "2y"    # 2 ปีเพื่อให้มีข้อมูล historical สำหรับ 6 เดือน
+    elif steps <= 365:
+        return "5y"    # 5 ปีเพื่อให้มีข้อมูล historical สำหรับ 1 ปี
+    else:
+        return "10y"
 
 
 # ==========================
@@ -137,7 +148,7 @@ def future_forecast(series: pd.Series, model_name: str, steps=7, exog=None):
 # ==========================
 # LSTM
 # ==========================
-def lstm_forecast_simple(series: pd.Series, steps=7, lookback=60, epochs=15, batch_size=32):
+def lstm_forecast_simple(series: pd.Series, steps=7, lookback=60, epochs=1, batch_size=64):
     values = series.values.reshape(-1,1).astype(np.float32)
     scaler = MinMaxScaler((0,1))
     scaled = scaler.fit_transform(values)
@@ -156,9 +167,10 @@ def lstm_forecast_simple(series: pd.Series, steps=7, lookback=60, epochs=15, bat
     X_val = X_val.reshape((X_val.shape[0], X_val.shape[1],1))
     tf.keras.backend.clear_session()
     model = Sequential([
-        LSTM(64, return_sequences=True, input_shape=(lookback,1)),
+        tf.keras.Input(shape=(lookback,1)),
+        LSTM(16, return_sequences=True),
         Dropout(0.1),
-        LSTM(32),
+        LSTM(8),
         Dense(1)
     ])
     model.compile(optimizer="adam", loss="mse")
@@ -178,57 +190,57 @@ def lstm_forecast_simple(series: pd.Series, steps=7, lookback=60, epochs=15, bat
 # ==========================
 # Update forecast
 # ==========================
-def update_forecast(app, tickers, models=["arima","sarima","sarimax","lstm"], steps=7):
+def update_forecast(app, tickers, models=["arima","sarima","sarimax","lstm"], steps_list=[7,90,365]):
     """
-    สร้าง/อัปเดต forecast สำหรับแต่ละสัญลักษณ์และโมเดล
-    steps: จำนวนวันอนาคตที่คำนวณและเก็บลง DB (default 7)
-    หมายเหตุ: UI ของคุณสามารถ backtest ด้วย steps อื่นได้แม้ DB จะเก็บ 7 วัน
+    สร้าง/อัปเดต forecast สำหรับแต่ละสัญลักษณ์-โมเดล-ช่วงเวลา (steps)
     """
     with app.app_context():
         for symbol in tickers:
             for m in models:
-                try:
-                    period = get_period_by_model(m)
-                    data = yf.download(symbol, period=period, progress=False, auto_adjust=True)['Close'].dropna()
-                    data = ensure_datetime_freq(data)
-                    if len(data) < max(70, steps+10):
-                        print(f"[Forecast] Skip {symbol}-{m} (not enough data)")
-                        continue
+                for steps in steps_list:
+                    try:
+                        period = get_period_by_model(m, steps)
+                        data = yf.download(symbol, period=period, progress=False, auto_adjust=True)['Close'].dropna()
+                        data = ensure_datetime_freq(data)
+                        if len(data) < max(70, steps+10):
+                            print(f"[Forecast] Skip {symbol}-{m}-{steps}d (not enough data)")
+                            continue
 
-                    # --- Exog สำหรับ SARIMAX: ใช้ period เดียวกับโมเดล ---
-                    exog = None
-                    if m == "sarimax":
-                        oil = yf.download("CL=F", period=period, progress=False, auto_adjust=True)['Close'].dropna()
-                        oil = ensure_datetime_freq(oil)
-                        oil = oil.reindex(data.index).ffill()
-                        exog = oil
+                        # --- Exog สำหรับ SARIMAX ---
+                        exog = None
+                        if m == "sarimax":
+                            oil = yf.download("CL=F", period=period, progress=False, auto_adjust=True)['Close'].dropna()
+                            oil = ensure_datetime_freq(oil)
+                            oil = oil.reindex(data.index).ffill()
+                            exog = oil
 
-                    # Backtest + forecast (ใช้ steps ที่ระบุ)
-                    back_fc, back_mae = backtest_last_n_days(data, model_name=m, steps=steps, exog=exog)
-                    backtest_json = series_to_chart_pairs_safe(back_fc)
+                        # Backtest + forecast
+                        back_fc, back_mae = backtest_last_n_days(data, model_name=m, steps=steps, exog=exog) # backtest ใช้ 7 วันคงที่
+                        backtest_json = series_to_chart_pairs_safe(back_fc)
 
-                    fut_fc = future_forecast(data, model_name=m, steps=steps, exog=exog)
-                    forecast_json = series_to_chart_pairs_safe(fut_fc)
+                        fut_fc = future_forecast(data, model_name=m, steps=steps, exog=exog)
+                        forecast_json = series_to_chart_pairs_safe(fut_fc)
 
-                    last_price = to_scalar(data.iloc[-1])
+                        last_price = to_scalar(data.iloc[-1])
 
-                    fc = StockForecast.query.filter_by(symbol=symbol, model=m).first()
-                    if not fc:
-                        fc = StockForecast(symbol=symbol,
-                                           model=m,
-                                           forecast_json=forecast_json,
-                                           backtest_json=backtest_json,
-                                           backtest_mae=back_mae,
-                                           last_price=last_price,
-                                           updated_at=datetime.utcnow())
-                        db.session.add(fc)
-                    else:
-                        fc.forecast_json = forecast_json
-                        fc.backtest_json = backtest_json
-                        fc.backtest_mae = back_mae
-                        fc.last_price = last_price
-                        fc.updated_at = datetime.utcnow()
-                    db.session.commit()
-                    print(f"[Forecast] Updated {symbol}-{m} | Steps={steps} | Backtest MAE: {back_mae:.4f}")
-                except Exception as e:
-                    print(f"[Forecast Error] {symbol}-{m}: {e}")
+                        fc = StockForecast.query.filter_by(symbol=symbol, model=m, steps=steps).first()
+                        if not fc:
+                            fc = StockForecast(symbol=symbol,
+                                               model=m,
+                                               steps=steps,
+                                               forecast_json=forecast_json,
+                                               backtest_json=backtest_json,
+                                               backtest_mae=back_mae,
+                                               last_price=last_price,
+                                               updated_at=datetime.utcnow())
+                            db.session.add(fc)
+                        else:
+                            fc.forecast_json = forecast_json
+                            fc.backtest_json = backtest_json
+                            fc.backtest_mae = back_mae
+                            fc.last_price = last_price
+                            fc.updated_at = datetime.utcnow()
+                        db.session.commit()
+                        print(f"[Forecast] Updated {symbol}-{m}-{steps}d | Backtest MAE: {back_mae:.4f}")
+                    except Exception as e:
+                        print(f"[Forecast Error] {symbol}-{m}-{steps}d: {e}")

@@ -85,32 +85,32 @@ def start_forecast_scheduler(app):
     from .models import StockForecast
     with app.app_context():
         now_th = datetime.now(tz_th)
-        today_10 = now_th.replace(hour=10, minute=0, second=0, microsecond=0)
-        cutoff = today_10 if now_th >= today_10 else today_10 - timedelta(days=1)
+        today_20 = now_th.replace(hour=20, minute=0, second=0, microsecond=0)
+        cutoff = today_20 if now_th >= today_20 else today_20 - timedelta(days=1)
 
-        # ✅ เพิ่ม SARIMAX เข้ามา
         models = ["arima", "sarima", "sarimax", "lstm"]
+        steps_list = [7, 90, 365]
 
-        # Fetch latest forecast if DB empty or outdated
         for t in TICKERS:
             for m in models:
-                fc = StockForecast.query.filter_by(symbol=t, model=m).first()
-                if not fc:
-                    print(f"Forecast DB empty -> Update {t}-{m}")
-                    update_forecast(app, [t], models=[m])   # ระบุโมเดลที่ต้องการชัดเจน
-                else:
-                    last_update_th = fc.updated_at.replace(tzinfo=pytz.UTC).astimezone(tz_th)
-                    if last_update_th < cutoff:
-                        print(f"Forecast outdated -> Update {t}-{m}")
-                        update_forecast(app, [t], models=[m])
+                for steps in steps_list:
+                    fc = StockForecast.query.filter_by(symbol=t, model=m, steps=steps).first()
+                    if not fc:
+                        print(f"Forecast DB empty -> Update {t}-{m}-{steps}d")
+                        update_forecast(app, [t], models=[m], steps_list=[steps])
+                    else:
+                        last_update_th = fc.updated_at.replace(tzinfo=pytz.UTC).astimezone(tz_th)
+                        if last_update_th < cutoff:
+                            print(f"Forecast outdated -> Update {t}-{m}-{steps}d")
+                            update_forecast(app, [t], models=[m], steps_list=[steps])
 
-    # Schedule daily at 10:00 (อัปเดตครบทุกโมเดลรวม SARIMAX)
+    # ✅ Schedule daily at 20:00
     forecast_scheduler.add_job(
-        func=lambda: update_forecast(app, TICKERS, models=["arima", "sarima", "sarimax", "lstm"]),
+        func=lambda: update_forecast(app, TICKERS, models=["arima", "sarima", "sarimax", "lstm"], steps_list=[7,90,365]),
         trigger="cron",
-        hour=10,
+        hour=20,
         minute=0,
         timezone=tz_th
     )
     forecast_scheduler.start()
-    print("Forecast scheduler started ✅")
+    print("Forecast scheduler started ✅ (20:00 daily)")
