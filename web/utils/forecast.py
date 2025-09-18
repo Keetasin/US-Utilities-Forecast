@@ -13,6 +13,35 @@ from .. import db
 from datetime import datetime
 
 
+
+
+# ==========================
+# Mapping calendar horizon → BDays
+# ==========================
+CALENDAR_TO_BDAYS = {
+    7: 5,       # 1 week ≈ 5 BDays
+    90: 63,     # 3 months ≈ 63 BDays
+    180: 126,   # 6 months ≈ 126 BDays
+    365: 252    # 1 year ≈ 252 BDays
+}
+
+def steps_to_bdays(steps: int) -> int:
+    """Map calendar horizon to business days"""
+    return CALENDAR_TO_BDAYS.get(steps, steps)
+
+def to_bday_future_index(last_dt: pd.Timestamp, steps: int) -> pd.DatetimeIndex:
+    """สร้าง future index เป็น business day"""
+    bdays = steps_to_bdays(steps)
+    start = last_dt + pd.offsets.BDay(1)
+    return pd.bdate_range(start=start, periods=bdays)
+
+
+
+# ==========================
+# Utils
+# ==========================
+
+
 def to_scalar(x) -> float:
     return float(np.asarray(x).reshape(-1)[0])
 
@@ -27,9 +56,14 @@ def ensure_datetime_freq(series: pd.Series, use_bdays=True) -> pd.Series:
         s = s.reindex(full_idx).ffill()
     return s
 
+
+
+
 def to_bday_future_index(last_dt: pd.Timestamp, steps: int) -> pd.DatetimeIndex:
+    """สร้าง future index เป็น business day โดย mapping calendar horizon → BDays"""
+    bdays = CALENDAR_TO_BDAYS.get(steps, steps)  # fallback: ใช้ steps เดิม
     start = last_dt + pd.offsets.BDay(1)
-    return pd.bdate_range(start=start, periods=steps)
+    return pd.bdate_range(start=start, periods=bdays)
 
 def series_to_chart_pairs_safe(series: pd.Series):
     s = series.copy()
@@ -38,112 +72,96 @@ def series_to_chart_pairs_safe(series: pd.Series):
         s.index = idx
     return [{"date": d.strftime('%Y-%m-%d'), "price": round(to_scalar(p),2)} for d,p in zip(s.index, s.values)]
 
-
 def get_period_by_model(model_name: str, steps: int) -> str:
-    """
-    กำหนด period ของ yfinance ตาม model และ horizon (steps)
-    """
     model_name = (model_name or "arima").lower()
-
     if model_name == "lstm":
         return "10y"
-
-    # non-LSTM → ปรับตาม horizon
     if steps <= 7:
-        return "6mo"   # 6 เดือนสำหรับ historical ของ 1 week
+        return "6mo"
     elif steps <= 180:
-        return "2y"    # 2 ปีเพื่อให้มีข้อมูล historical สำหรับ 6 เดือน
+        return "2y"
     elif steps <= 365:
-        return "5y"    # 5 ปีเพื่อให้มีข้อมูล historical สำหรับ 1 ปี
+        return "5y"
     else:
         return "10y"
-
 
 # ==========================
 # Forecasting helpers
 # ==========================
-def _build_exog_future_like_last(exog: pd.Series, last_dt: pd.Timestamp, steps: int) -> pd.Series:
-    """สร้าง exog อนาคตแบบ naive: ใช้ค่าล่าสุดคงที่ แล้วยืด index ออกไปตามวันทำการ"""
-    future_idx = to_bday_future_index(last_dt, steps)
-    return pd.Series([to_scalar(exog.iloc[-1])] * steps, index=future_idx)
+
+
 
 def backtest_last_n_days(series: pd.Series, model_name: str, steps=7, exog=None):
     s = ensure_datetime_freq(series)
-    if len(s) <= steps:
+    steps_b = steps_to_bdays(steps)
+    if len(s) <= steps_b:
         raise ValueError("Series too short for backtest window.")
 
-    train_data = s.iloc[:-steps]
-    true_future = s.iloc[-steps:]
+    train_data = s.iloc[:-steps_b]
+    true_future = s.iloc[-steps_b:]
 
     if model_name == "arima":
-        # ใช้ค่าพารามิเตอร์เดียวกันทั้ง backtest/future เพื่อลดความเพี้ยน
         m = ARIMA(train_data, order=(2,1,0)).fit()
-        fc = m.forecast(steps=steps)
-
+        fc = m.forecast(steps=steps_b)
     elif model_name == "sarima":
         m = SARIMAX(train_data, order=(2,1,0), seasonal_order=(1,1,0,12),
                     enforce_stationarity=False, enforce_invertibility=False).fit(disp=False)
-        fc = m.forecast(steps=steps)
-
+        fc = m.forecast(steps=steps_b)
     elif model_name == "sarimax":
         if exog is None:
             raise ValueError("SARIMAX requires exogenous variable (exog).")
         exog = ensure_datetime_freq(exog)
         exog = exog.reindex(s.index).ffill()
-        exog_train = exog.iloc[:-steps]
-        exog_future = exog.iloc[-steps:]
+        exog_train = exog.iloc[:-steps_b]
+        exog_future = exog.iloc[-steps_b:]
         m = SARIMAX(train_data, order=(2,1,0), seasonal_order=(1,1,0,12),
                     exog=exog_train,
                     enforce_stationarity=False, enforce_invertibility=False).fit(disp=False)
-        fc = m.forecast(steps=steps, exog=exog_future)
-
+        fc = m.forecast(steps=steps_b, exog=exog_future)
     elif model_name == "lstm":
-        fc_vals = lstm_forecast_simple(train_data, steps)
+        fc_vals = lstm_forecast_simple(train_data, steps_b)
         fc = pd.Series(fc_vals, index=true_future.index)
-
     else:
         raise ValueError("Unknown model")
 
     mae = mean_absolute_error(true_future.values, fc.values)
     return pd.Series(fc.values, index=true_future.index), mae
 
-
 def future_forecast(series: pd.Series, model_name: str, steps=7, exog=None):
     s = ensure_datetime_freq(series)
     last_dt = s.index[-1]
+    steps_b = steps_to_bdays(steps)
 
     if model_name == "arima":
         m = ARIMA(s, order=(2,1,0)).fit()
-        fc = m.forecast(steps=steps)
-
+        fc = m.forecast(steps=steps_b)
     elif model_name == "sarima":
         m = SARIMAX(s, order=(2,1,0), seasonal_order=(1,1,0,12),
                     enforce_stationarity=False, enforce_invertibility=False).fit(disp=False)
-        fc = m.forecast(steps=steps)
-
+        fc = m.forecast(steps=steps_b)
     elif model_name == "sarimax":
         if exog is None:
             raise ValueError("SARIMAX requires exogenous variable (exog).")
         exog = ensure_datetime_freq(exog)
-        # จัด exog ให้ align กับส่วนนำ และสร้างอนาคตแบบ naive ให้ยาวเท่า steps
         exog_hist = exog.reindex(s.index).ffill()
-        exog_future = _build_exog_future_like_last(exog_hist, last_dt, steps)
+        exog_future = _build_exog_future_like_last(exog_hist, last_dt, steps_b)
         m = SARIMAX(s, order=(2,1,0), seasonal_order=(1,1,0,12),
                     exog=exog_hist,
                     enforce_stationarity=False, enforce_invertibility=False).fit(disp=False)
-        fc = m.forecast(steps=steps, exog=exog_future)
-
+        fc = m.forecast(steps=steps_b, exog=exog_future)
     elif model_name == "lstm":
-        vals = lstm_forecast_simple(s, steps)
-        fc = pd.Series(vals, index=to_bday_future_index(last_dt, steps))
+        vals = lstm_forecast_simple(s, steps_b)
+        fc = pd.Series(vals, index=to_bday_future_index(last_dt, steps_b))
         return fc
-
     else:
         raise ValueError("Unknown model")
 
-    fc = pd.Series(fc.values, index=to_bday_future_index(last_dt, steps))
+    fc = pd.Series(fc.values, index=to_bday_future_index(last_dt, steps_b))
     return fc
 
+def _build_exog_future_like_last(exog: pd.Series, last_dt: pd.Timestamp, steps_b: int) -> pd.Series:
+    future_idx = to_bday_future_index(last_dt, steps_b)
+    return pd.Series([to_scalar(exog.iloc[-1])] * len(future_idx), index=future_idx)
 
 # ==========================
 # LSTM
@@ -186,14 +204,10 @@ def lstm_forecast_simple(series: pd.Series, steps=7, lookback=60, epochs=1, batc
         last_window[-1]=p
     return scaler.inverse_transform(np.array(preds).reshape(-1,1)).ravel()
 
-
 # ==========================
 # Update forecast
 # ==========================
 def update_forecast(app, tickers, models=["arima","sarima","sarimax","lstm"], steps_list=[7,90,365]):
-    """
-    สร้าง/อัปเดต forecast สำหรับแต่ละสัญลักษณ์-โมเดล-ช่วงเวลา (steps)
-    """
     with app.app_context():
         for symbol in tickers:
             for m in models:
@@ -206,7 +220,6 @@ def update_forecast(app, tickers, models=["arima","sarima","sarimax","lstm"], st
                             print(f"[Forecast] Skip {symbol}-{m}-{steps}d (not enough data)")
                             continue
 
-                        # --- Exog สำหรับ SARIMAX ---
                         exog = None
                         if m == "sarimax":
                             oil = yf.download("CL=F", period=period, progress=False, auto_adjust=True)['Close'].dropna()
@@ -214,8 +227,7 @@ def update_forecast(app, tickers, models=["arima","sarima","sarimax","lstm"], st
                             oil = oil.reindex(data.index).ffill()
                             exog = oil
 
-                        # Backtest + forecast
-                        back_fc, back_mae = backtest_last_n_days(data, model_name=m, steps=steps, exog=exog) # backtest ใช้ 7 วันคงที่
+                        back_fc, back_mae = backtest_last_n_days(data, model_name=m, steps=steps, exog=exog)
                         backtest_json = series_to_chart_pairs_safe(back_fc)
 
                         fut_fc = future_forecast(data, model_name=m, steps=steps, exog=exog)

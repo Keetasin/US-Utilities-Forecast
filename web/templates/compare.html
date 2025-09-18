@@ -20,11 +20,13 @@
 
 <!-- Dropdown horizon -->
 <div class="chart-controls compare-filters">
-  <select name="steps" id="steps" onchange="this.form.submit()">
-    <option value="7"   {{ 'selected' if steps==7 else '' }}>1 Week</option>
-    <option value="90"  {{ 'selected' if steps==90 else '' }}>3 Months</option>
-    <option value="365" {{ 'selected' if steps==365 else '' }}>1 Year</option>
-  </select>
+  <form method="get" action="{{ url_for('views.compare_models', symbol=symbol) }}">
+    <select name="steps" id="steps" onchange="this.form.submit()">
+      <option value="7"   {{ 'selected' if steps==7 else '' }}>1 Week</option>
+      <option value="180" {{ 'selected' if steps==180 else '' }}>6 Months</option>
+      <option value="365" {{ 'selected' if steps==365 else '' }}>1 Year</option>
+    </select>
+  </form>
 </div>
 
 

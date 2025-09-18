@@ -67,152 +67,7 @@ def news(symbol):
         summary = "No news yet. Will update at 20:00."
     return render_template("news.html", symbol=symbol, news=news_list[:5], summary=summary)
 
-# ---------------------------
-# Forecasting (DB first)
-# ---------------------------
-@views.route('/forecasting/<symbol>/<model>')
-def forecasting(symbol, model):
-    model = (model or "arima").lower()
-    steps = int(request.args.get("steps", 7))   # horizon (7, 90, 365)
 
-    # ✅ 1) Query DB ก่อน
-    fc = StockForecast.query.filter_by(symbol=symbol, model=model, steps=steps).first()
-
-    # ✅ 2) ถ้า DB ไม่มีข้อมูล → update_forecast แบบ on-demand
-    if not fc:
-        update_forecast(current_app, [symbol], models=[model], steps_list=[steps])
-        fc = StockForecast.query.filter_by(symbol=symbol, model=model, steps=steps).first()
-
-        if not fc:  # ถ้า update แล้วยัง fail → return error
-            return render_template(
-                "forecasting.html",
-                has_data=False,
-                symbol=symbol,
-                model=model.lower(),
-                error="No forecast yet. Try again later.",
-                steps=steps
-            )
-
-    forecast_json = fc.forecast_json
-
-    # Last price
-    last_price_val = getattr(fc, "last_price", None) or (forecast_json[0]["price"] if forecast_json else 0.0)
-
-    # Trend
-    trend = {
-        "direction": "Up" if forecast_json[-1]["price"] > last_price_val else "Down",
-        "icon": "🔼" if forecast_json[-1]["price"] > last_price_val else "🔽"
-    }
-
-    # Historical fallback
-    historical = getattr(fc, "historical_json", None) or []
-    if not historical:
-        try:
-            period = get_period_by_model(model, steps)
-            full_close = yf.download(symbol, period=period, progress=False, auto_adjust=True)['Close'].dropna()
-            full_close = ensure_datetime_freq(full_close)
-            historical = series_to_chart_pairs_safe(full_close.tail(30))
-            last_price_val = to_scalar(full_close.iloc[-1])
-        except:
-            historical = []
-
-    # Backtest fallback
-    backtest = getattr(fc, "backtest_json", None) or []
-    backtest_mae = getattr(fc, "backtest_mae", None)
-    if not backtest:
-        try:
-            s = pd.Series([d["price"] for d in historical], index=pd.to_datetime([d["date"] for d in historical]))
-            exog = None
-            if model == "sarimax":
-                oil = yf.download("CL=F", period="3y", progress=False, auto_adjust=True)['Close'].dropna()
-                oil = ensure_datetime_freq(oil)
-                oil = oil.reindex(s.index).fillna(method="ffill")
-                exog = oil
-            bt, mae = backtest_last_n_days(s, model_name=model, steps=steps, exog=exog)
-            backtest = series_to_chart_pairs_safe(bt)
-            backtest_mae = mae
-        except:
-            backtest, backtest_mae = [], 0.0
-
-    backtest_mae_pct = (backtest_mae / last_price_val * 100.0) if last_price_val else 0.0
-
-    return render_template(
-        "forecasting.html",
-        symbol=symbol,
-        model=model.upper(),
-        forecast=forecast_json,
-        historical=historical,
-        backtest=backtest,
-        backtest_mae=backtest_mae,
-        backtest_mae_pct=backtest_mae_pct,
-        last_price=round(last_price_val, 2),
-        trend=trend,
-        has_data=True,
-        steps=steps,
-        last_updated=fc.updated_at.strftime("%Y-%m-%d %H:%M")
-    )
-
-# ---------------------------
-# Compare
-# ---------------------------
-@views.route('/compare/<symbol>')
-def compare_models(symbol):
-    steps = int(request.args.get("steps", 7))
-    results, historical, last_price = {}, [], None
-    models = ["arima", "sarima", "sarimax", "lstm"]
-
-    fc_records = StockForecast.query.filter_by(symbol=symbol).all()
-    if fc_records:
-        first_fc = fc_records[0]
-        historical = getattr(first_fc, "historical_json", []) or []
-
-    if not historical:
-        try:
-            long_close = yf.download(symbol, period="10y", progress=False, auto_adjust=True)['Close'].dropna()
-            long_close = ensure_datetime_freq(long_close)
-            historical = series_to_chart_pairs_safe(long_close.tail(30))
-            last_price = round(to_scalar(long_close.iloc[-1]),2)
-        except:
-            historical, last_price = [], None
-    else:
-        last_price = round(historical[-1]["price"],2) if historical else None
-
-    for m in models:
-        fc = StockForecast.query.filter_by(symbol=symbol, model=m).first()
-        if not fc:
-            results[m] = {"ok": False, "error": f"No forecast for {m.upper()}"}
-            continue
-        forecast_json = fc.forecast_json or []
-        backtest_json = getattr(fc, "backtest_json", []) or []
-        backtest_mae = getattr(fc, "backtest_mae", 0)
-        backtest_mae_pct = (backtest_mae / last_price * 100.0) if last_price else 0.0
-        results[m] = {
-            "ok": True,
-            "forecast": forecast_json,
-            "historical": historical,
-            "backtest": backtest_json,
-            "backtest_mae": backtest_mae,
-            "backtest_mae_pct": backtest_mae_pct,
-            "forecast_last": round(forecast_json[-1]["price"],2) if forecast_json else None
-        }
-
-    best_model, best_mae = None, None
-    for m in models:
-        if results.get(m, {}).get("ok"):
-            mae = results[m]["backtest_mae"]
-            if best_mae is None or mae < best_mae:
-                best_mae, best_model = mae, m.upper()
-
-    return render_template(
-        "compare.html",
-        symbol=symbol,
-        historical=historical,
-        last_price=last_price,
-        results=results,
-        best_model=best_model,
-        best_mae=best_mae,
-        steps=steps
-    )
 
 # ---------------------------
 # Stock Analytics
@@ -357,4 +212,205 @@ def dashboard():
         avg_volumes=avg_volumes,
         historical_prices=historical_prices,
         historical_dates=historical_dates
+    )
+
+
+
+
+
+
+
+
+
+
+
+
+# ---------------------------
+# Forecasting (DB first)
+# ---------------------------
+@views.route('/forecasting/<symbol>/<model>')
+def forecasting(symbol, model):
+    model = (model or "arima").lower()
+    steps = int(request.args.get("steps", 7))   # horizon (7, 90, 365)
+
+    # ✅ 1) Query DB ก่อน
+    fc = StockForecast.query.filter_by(symbol=symbol, model=model, steps=steps).first()
+
+    # ✅ 2) ถ้า DB ไม่มีข้อมูล → update_forecast แบบ on-demand
+    if not fc:
+        update_forecast(current_app, [symbol], models=[model], steps_list=[steps])
+        fc = StockForecast.query.filter_by(symbol=symbol, model=model, steps=steps).first()
+
+        if not fc:  # ถ้า update แล้วยัง fail → return error
+            return render_template(
+                "forecasting.html",
+                has_data=False,
+                symbol=symbol,
+                model=model.lower(),
+                error="No forecast yet. Try again later.",
+                steps=steps
+            )
+
+    forecast_json = fc.forecast_json
+
+    # Last price
+    last_price_val = getattr(fc, "last_price", None) or (forecast_json[0]["price"] if forecast_json else 0.0)
+
+    # Trend
+    trend = {
+        "direction": "Up" if forecast_json[-1]["price"] > last_price_val else "Down",
+        "icon": "🔼" if forecast_json[-1]["price"] > last_price_val else "🔽"
+    }
+
+
+    # Historical fallback
+    # Historical fallback
+    historical = getattr(fc, "historical_json", None) or []
+    if not historical:
+        try:
+            # กำหนด period สำหรับ historical ยาวกว่าที่ forecast ใช้
+            if steps == 7:
+                hist_period = "7d"       # 1 month
+            elif steps == 180:
+                hist_period = "6mo"      # 1.5 year
+            elif steps == 365:
+                hist_period = "1y"        # 2 years
+            else:
+                hist_period = get_period_by_model(model, steps)
+
+            full_close = yf.download(symbol, period=hist_period, progress=False, auto_adjust=True)['Close'].dropna()
+            full_close = ensure_datetime_freq(full_close)
+
+            max_points = 300
+            if len(full_close) > max_points:
+                full_close = full_close.tail(max_points)
+
+            historical = series_to_chart_pairs_safe(full_close)
+            last_price_val = to_scalar(full_close.iloc[-1])
+        except:
+            historical = []
+
+
+    # Backtest fallback
+    backtest = getattr(fc, "backtest_json", None) or []
+    backtest_mae = getattr(fc, "backtest_mae", None)
+    if not backtest:
+        try:
+            s = pd.Series([d["price"] for d in historical], index=pd.to_datetime([d["date"] for d in historical]))
+            exog = None
+            if model == "sarimax":
+                oil = yf.download("CL=F", period="3y", progress=False, auto_adjust=True)['Close'].dropna()
+                oil = ensure_datetime_freq(oil)
+                oil = oil.reindex(s.index).fillna(method="ffill")
+                exog = oil
+            bt, mae = backtest_last_n_days(s, model_name=model, steps=steps, exog=exog)
+            backtest = series_to_chart_pairs_safe(bt)
+            backtest_mae = mae
+        except:
+            backtest, backtest_mae = [], 0.0
+
+    backtest_mae_pct = (backtest_mae / last_price_val * 100.0) if last_price_val else 0.0
+
+    return render_template(
+        "forecasting.html",
+        symbol=symbol,
+        model=model.upper(),
+        forecast=forecast_json,
+        historical=historical,
+        backtest=backtest,
+        backtest_mae=backtest_mae,
+        backtest_mae_pct=backtest_mae_pct,
+        last_price=round(last_price_val, 2),
+        trend=trend,
+        has_data=True,
+        steps=steps,
+        last_updated=fc.updated_at.strftime("%Y-%m-%d %H:%M")
+    )
+
+
+
+
+
+
+
+# ---------------------------
+# Compare
+# ---------------------------
+@views.route('/compare/<symbol>')
+def compare_models(symbol):
+    steps = int(request.args.get("steps", 7))
+    results, historical, last_price = {}, [], None
+    models = ["arima", "sarima", "sarimax", "lstm"]
+
+    # ตรวจสอบ forecast สำหรับ steps ปัจจุบัน
+    for m in models:
+        fc = StockForecast.query.filter_by(symbol=symbol, model=m, steps=steps).first()
+        if not fc:
+            update_forecast(current_app, [symbol], models=[m], steps_list=[steps])
+            fc = StockForecast.query.filter_by(symbol=symbol, model=m, steps=steps).first()
+        if not fc:
+            results[m] = {"ok": False, "error": f"No forecast for {m.upper()} ({steps}d)"}
+            continue
+
+        # Forecast + Backtest
+        forecast_json = fc.forecast_json or []
+        backtest_json = getattr(fc, "backtest_json", []) or []
+        backtest_mae = getattr(fc, "backtest_mae", 0)
+
+        # Historical
+        h = getattr(fc, "historical_json", None) or []
+        if not h:
+            try:
+                # กำหนด period สำหรับ historical ยาวกว่าที่ forecast ใช้
+                if steps == 7:
+                    hist_period = "7d"       # 1 month
+                elif steps == 180:
+                    hist_period = "6mo"      # 1.5 year
+                elif steps == 365:
+                    hist_period = "1y"        # 2 years
+                else:
+                    hist_period = get_period_by_model(m, steps)
+
+                full_close = yf.download(symbol, period=hist_period, progress=False, auto_adjust=True)['Close'].dropna()
+                full_close = ensure_datetime_freq(full_close)
+
+                max_points = 300
+                if len(full_close) > max_points:
+                    full_close = full_close.tail(max_points)
+
+                h = series_to_chart_pairs_safe(full_close)
+            except:
+                h = []
+        historical = h  # ใช้ historical ของ model ล่าสุดที่มี
+        last_price = round(to_scalar(full_close.iloc[-1]) if h else forecast_json[0]["price"], 2)
+
+
+        backtest_mae_pct = (backtest_mae / last_price * 100.0) if last_price else 0.0
+        results[m] = {
+            "ok": True,
+            "forecast": forecast_json,
+            "historical": h,
+            "backtest": backtest_json,
+            "backtest_mae": backtest_mae,
+            "backtest_mae_pct": backtest_mae_pct,
+            "forecast_last": round(forecast_json[-1]["price"], 2) if forecast_json else None
+        }
+
+    # หา best model
+    best_model, best_mae = None, None
+    for m in models:
+        if results.get(m, {}).get("ok"):
+            mae = results[m]["backtest_mae"]
+            if best_mae is None or mae < best_mae:
+                best_mae, best_model = mae, m.upper()
+
+    return render_template(
+        "compare.html",
+        symbol=symbol,
+        historical=historical,
+        last_price=last_price,
+        results=results,
+        best_model=best_model,
+        best_mae=best_mae,
+        steps=steps
     )
