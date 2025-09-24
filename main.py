@@ -1,5 +1,5 @@
-from web import create_app
-from web.scheduler import start_stock_scheduler, start_news_scheduler, start_forecast_scheduler
+from src.web import create_app
+from src.web.scheduler import start_stock_scheduler, start_news_scheduler, start_forecast_scheduler
 
 app = create_app()
 
