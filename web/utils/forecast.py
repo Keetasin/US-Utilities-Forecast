@@ -17,21 +17,31 @@ from datetime import datetime
 # Custom parameters for each stock
 # ==========================
 MODEL_PARAMS = {
-    "AEP": {"arima": {"order": (2, 1, 3)},
-            "sarima": {"order": (0, 1, 2), "seasonal_order": (0, 0, 1, 20)},
-            "sarimax": {"order": (2, 1, 2), "seasonal_order": (0, 0, 1, 20)}},
-    "DUK": {"arima": {"order": (0, 1, 0)},
-            "sarima": {"order": (0, 1, 2), "seasonal_order": (0, 0, 1, 20)},
-            "sarimax": {"order": (2, 1, 2), "seasonal_order": (1, 0, 1, 20)}},
-    "SO":  {"arima": {"order": (2, 1, 0)},
-            "sarima": {"order": (0, 1, 2), "seasonal_order": (0, 0, 1, 20)},
-            "sarimax": {"order": (0, 1, 2), "seasonal_order": (0, 0, 1, 20)}},
-    "ED":  {"arima": {"order": (0, 1, 0)},
-            "sarima": {"order": (0, 1, 2), "seasonal_order": (0, 0, 1, 20)},
-            "sarimax": {"order": (0, 1, 0), "seasonal_order": (0, 0, 1, 20)}},
-    "EXC": {"arima": {"order": (0, 1, 0)},
-            "sarima": {"order": (0, 1, 1), "seasonal_order": (0, 0, 1, 20)},
-            "sarimax": {"order": (0, 1, 1), "seasonal_order": (0, 0, 1, 20)}},
+    "AEP": {
+        "arima":   {"order": (2,1,2)},
+        "sarima":  {"order": (1,1,1), "seasonal_order": (0,1,1,20)},
+        "sarimax": {"order": (2,1,1), "seasonal_order": (1,0,1,20)}
+    },
+    "DUK": {
+        "arima":   {"order": (1,1,1)},
+        "sarima":  {"order": (2,1,0), "seasonal_order": (0,1,1,20)},
+        "sarimax": {"order": (1,1,2), "seasonal_order": (1,0,1,20)}
+    },
+    "SO": {
+        "arima":   {"order": (0,1,2)},
+        "sarima":  {"order": (1,1,1), "seasonal_order": (1,1,0,20)},
+        "sarimax": {"order": (2,1,2), "seasonal_order": (0,0,1,20)}
+    },
+    "ED": {
+        "arima":   {"order": (2,1,0)},
+        "sarima":  {"order": (1,1,2), "seasonal_order": (0,1,1,20)},
+        "sarimax": {"order": (1,1,1), "seasonal_order": (1,0,0,20)}
+    },
+    "EXC": {
+        "arima":   {"order": (1,1,2)},
+        "sarima":  {"order": (0,1,1), "seasonal_order": (1,1,1,20)},
+        "sarimax": {"order": (2,1,1), "seasonal_order": (0,0,1,20)}
+    }
 }
 
 def get_params(symbol: str, model_name: str):
@@ -44,10 +54,11 @@ def get_params(symbol: str, model_name: str):
 # ==========================
 # Exogenous variables
 # ==========================
+EXOG_TICKERS = {"oil": "CL=F", "gas": "NG=F", "xlu": "XLU"}
+
 def get_exogenous(period="5y"):
-    tickers = {"oil": "CL=F", "gas": "NG=F", "xlu": "XLU"}
     exog_df = pd.DataFrame()
-    for name, tkr in tickers.items():
+    for name, tkr in EXOG_TICKERS.items():
         try:
             s = yf.download(tkr, period=period, progress=False, auto_adjust=True)["Close"].dropna()
             s = ensure_datetime_freq(s)
@@ -125,6 +136,81 @@ def choose_seasonal_m(steps: int) -> int:
     else: return 252
 
 # ==========================
+# LSTM (เวอร์ชันเพื่อน ปรับใช้กับเรา)
+# ==========================
+def lstm_forecast_better(series: pd.Series,
+                         exog: pd.DataFrame | None = None,
+                         steps: int = 7,
+                         lookback: int = 120,
+                         epochs: int = 30,
+                         batch_size: int = 64,
+                         patience: int = 10) -> np.ndarray:
+    s = ensure_datetime_freq(series).astype(np.float32)
+    rets = s.pct_change().dropna()
+
+    if exog is not None:
+        exog_clean = ensure_datetime_freq(exog)
+        exog_rets = exog_clean.pct_change().dropna()
+        combined_df = pd.concat([rets, exog_rets], axis=1).dropna()
+        data = combined_df.values.astype(np.float32)
+        num_features = data.shape[1]
+    else:
+        combined_df = rets.to_frame()
+        data = combined_df.values.astype(np.float32)
+        num_features = 1
+
+    if len(combined_df) < lookback + 10:
+        print("⚠️ Not enough data for LSTM training → fallback to naive forecast")
+        return np.array([float(s.iloc[-1])] * steps, dtype=np.float32)
+
+    scaler = StandardScaler()
+    scaled_data = scaler.fit_transform(data)
+
+    X, y = [], []
+    for i in range(lookback, len(scaled_data)):
+        X.append(scaled_data[i - lookback:i])
+        y.append(scaled_data[i, 0])
+
+    X, y = np.asarray(X, dtype=np.float32), np.asarray(y, dtype=np.float32)
+    split = int(len(X) * 0.8)
+    X_tr, y_tr, X_va, y_va = X[:split], y[:split], X[split:], y[split:]
+
+    tf.keras.backend.clear_session()
+    model = Sequential([
+        tf.keras.Input(shape=(lookback, num_features)),
+        Bidirectional(LSTM(64, return_sequences=True)),
+        Dropout(0.2),
+        Bidirectional(LSTM(32)),
+        Dense(1),
+    ])
+    model.compile(optimizer="adam", loss=tf.keras.losses.Huber())
+
+    cbs = [
+        EarlyStopping(monitor="val_loss", patience=patience, restore_best_weights=True),
+        ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=max(3, patience // 3), min_lr=1e-5),
+    ]
+    model.fit(X_tr, y_tr, validation_data=(X_va, y_va),
+              epochs=epochs, batch_size=batch_size, verbose=0, callbacks=cbs)
+
+    last_window = scaled_data[-lookback:].copy()
+    pred_prices, last_price = [], float(s.iloc[-1])
+
+    for _ in range(steps):
+        x = last_window.reshape(1, lookback, num_features)
+        pred_z = float(model.predict(x, verbose=0)[0, 0])
+        pred_ret = float(scaler.inverse_transform([[pred_z] + [0]*(num_features-1)])[0, 0])
+
+        last_price *= (1.0 + pred_ret)
+        pred_prices.append(last_price)
+
+        last_window = np.roll(last_window, -1, axis=0)
+        last_window[-1, 0] = pred_z
+        if num_features > 1:
+            last_window[-1, 1:] = scaled_data[-1, 1:]
+
+    return np.array(pred_prices, dtype=np.float32)
+
+# ==========================
 # Forecasting helpers
 # ==========================
 def backtest_last_n_days(series: pd.Series, model_name: str, steps=7, exog=None, symbol="GENERIC"):
@@ -160,7 +246,7 @@ def backtest_last_n_days(series: pd.Series, model_name: str, steps=7, exog=None,
                     enforce_stationarity=False, enforce_invertibility=False).fit(disp=False)
         fc = m.forecast(steps=steps_b, exog=exog_future)
     elif model_name == "lstm":
-        fc_vals = lstm_forecast_simple(train_data, steps_b, exog=exog.iloc[:-steps_b] if exog is not None else None)
+        fc_vals = lstm_forecast_better(train_data, exog=exog.iloc[:-steps_b] if exog is not None else None, steps=steps_b)
         fc = pd.Series(fc_vals, index=true_future.index)
     else:
         raise ValueError("Unknown model")
@@ -200,7 +286,7 @@ def future_forecast(series: pd.Series, model_name: str, steps=7, exog=None, symb
                     enforce_stationarity=False, enforce_invertibility=False).fit(disp=False)
         fc = m.forecast(steps=steps_b, exog=exog_future)
     elif model_name == "lstm":
-        vals = lstm_forecast_simple(s, steps_b, exog=exog)
+        vals = lstm_forecast_better(s, exog=exog, steps=steps_b)
         fc = pd.Series(vals, index=to_bday_future_index(last_dt, steps_b))
         return fc
     else:
@@ -210,75 +296,53 @@ def future_forecast(series: pd.Series, model_name: str, steps=7, exog=None, symb
     return fc
 
 # ==========================
-# LSTM (ปรับใหม่ แต่เก็บชื่อเดิม)
+# Update forecast
 # ==========================
-def lstm_forecast_simple(series: pd.Series,
-                         steps=7,
-                         exog: pd.Series | None = None,
-                         lookback: int = 120,
-                         epochs: int = 30,
-                         batch_size: int = 64,
-                         patience: int = 10):
-    """
-    Bidirectional LSTM ที่ใช้ returns + optional exogenous variables
-    """
-    s = ensure_datetime_freq(series).astype(np.float32)
-    rets = s.pct_change().dropna()
-    data = rets.values.reshape(-1, 1).astype(np.float32)
+def update_forecast(app, tickers, models=["arima","sarima","sarimax","lstm"], steps_list=[7,90,365]):
+    with app.app_context():
+        for symbol in tickers:
+            for m in models:
+                for steps in steps_list:
+                    try:
+                        period = get_period_by_model(m, steps)
+                        data = yf.download(symbol, period=period, progress=False, auto_adjust=True)['Close'].dropna()
+                        data = ensure_datetime_freq(data)
+                        if len(data) < max(70, steps+10):
+                            print(f"[Forecast] Skip {symbol}-{m}-{steps}d (not enough data)")
+                            continue
 
-    if exog is not None:
-        exog_clean = ensure_datetime_freq(exog)
-        exog_rets = exog_clean.pct_change().dropna()
-        combined_df = pd.concat([rets, exog_rets], axis=1).dropna()
-        data = combined_df.values.astype(np.float32)
-        num_features = data.shape[1]
-    else:
-        combined_df = rets.to_frame()
-        num_features = 1
+                        exog = None
+                        if m in ["sarimax","lstm"]:
+                            exog_all = get_exogenous(period=period)
+                            exog_all = exog_all.reindex(data.index).ffill()
+                            exog = exog_all
 
-    if len(combined_df) < lookback + 10:
-        return np.array([float(s.iloc[-1])] * steps, dtype=np.float32)
+                        back_fc, back_mae = backtest_last_n_days(data, model_name=m, steps=steps, exog=exog, symbol=symbol)
+                        backtest_json = series_to_chart_pairs_safe(back_fc)
 
-    scaler = StandardScaler()
-    scaled_data = scaler.fit_transform(data)
+                        fut_fc = future_forecast(data, model_name=m, steps=steps, exog=exog, symbol=symbol)
+                        forecast_json = series_to_chart_pairs_safe(fut_fc)
 
-    X, y = [], []
-    for i in range(lookback, len(scaled_data)):
-        X.append(scaled_data[i - lookback:i])
-        y.append(scaled_data[i, 0])
+                        last_price = to_scalar(data.iloc[-1])
 
-    X, y = np.asarray(X, dtype=np.float32), np.asarray(y, dtype=np.float32)
-    split = int(len(X) * 0.8)
-    X_tr, y_tr, X_va, y_va = X[:split], y[:split], X[split:], y[split:]
-
-    tf.keras.backend.clear_session()
-    model = Sequential([
-        tf.keras.Input(shape=(lookback, num_features)),
-        Bidirectional(LSTM(64, return_sequences=True)),
-        Dropout(0.2),
-        Bidirectional(LSTM(32)),
-        Dense(1),
-    ])
-    model.compile(optimizer="adam", loss=tf.keras.losses.Huber())
-    cbs = [
-        EarlyStopping(monitor="val_loss", patience=patience, restore_best_weights=True),
-        ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=max(3, patience // 3), min_lr=1e-5),
-    ]
-    model.fit(X_tr, y_tr, validation_data=(X_va, y_va),
-              epochs=epochs, batch_size=batch_size, verbose=0, callbacks=cbs)
-
-    last_window = scaled_data[-lookback:].copy()
-    pred_prices, last_price = [], float(s.iloc[-1])
-
-    for _ in range(steps):
-        x = last_window.reshape(1, lookback, num_features)
-        pred_z = float(model.predict(x, verbose=0)[0, 0])
-        pred_ret = float(scaler.inverse_transform([[pred_z] + [0]*(num_features-1)])[0, 0])
-        last_price *= (1.0 + pred_ret)
-        pred_prices.append(last_price)
-        last_window = np.roll(last_window, -1, axis=0)
-        last_window[-1, 0] = pred_z
-        if num_features > 1:
-            last_window[-1, 1] = scaled_data[-1, 1]
-
-    return np.array(pred_prices, dtype=np.float32)
+                        fc = StockForecast.query.filter_by(symbol=symbol, model=m, steps=steps).first()
+                        if not fc:
+                            fc = StockForecast(symbol=symbol,
+                                               model=m,
+                                               steps=steps,
+                                               forecast_json=forecast_json,
+                                               backtest_json=backtest_json,
+                                               backtest_mae=back_mae,
+                                               last_price=last_price,
+                                               updated_at=datetime.utcnow())
+                            db.session.add(fc)
+                        else:
+                            fc.forecast_json = forecast_json
+                            fc.backtest_json = backtest_json
+                            fc.backtest_mae = back_mae
+                            fc.last_price = last_price
+                            fc.updated_at = datetime.utcnow()
+                        db.session.commit()
+                        print(f"[Forecast] Updated {symbol}-{m}-{steps}d | Backtest MAE: {back_mae:.4f}")
+                    except Exception as e:
+                        print(f"[Forecast Error] {symbol}-{m}-{steps}d: {e}")

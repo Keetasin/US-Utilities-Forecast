@@ -130,6 +130,8 @@ function drawCharts(range='ytd') {
         y:symbols,
         type:'heatmap',
         colorscale:'Viridis',
+        zmin:-1,  
+        zmax:1,  
         text:corrMatrix.map(r=>r.map(v=>v.toFixed(2))),
         texttemplate:"%{text}",
         textfont:{color:'white',size:12}
