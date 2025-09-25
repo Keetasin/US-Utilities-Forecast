@@ -98,5 +98,5 @@
       /* ----------------- Neon Titles ----------------- */
       h1, h2, h3 {
           color: #00e5ff;
-          text-shadow: 0 0 10px #00e5ff, 0 0 20px #00e5ff;
+          /* text-shadow: 0 0 10px #00e5ff, 0 0 20px #00e5ff; */
       }

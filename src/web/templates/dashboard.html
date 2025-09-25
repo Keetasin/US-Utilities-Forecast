@@ -125,25 +125,41 @@ function drawCharts(range='ytd') {
     }
 
     Plotly.newPlot('corrChart',[{
-        z:corrMatrix,
-        x:symbols,
-        y:symbols,
-        type:'heatmap',
-        colorscale:'Viridis',
-        text:corrMatrix.map(r=>r.map(v=>v.toFixed(2))),
-        texttemplate:"%{text}",
-        textfont:{color:'white',size:12}
-    }],{title:'Stock Price Correlation',plot_bgcolor:'#111',paper_bgcolor:'#111',font:{color:'#00e5ff'}});
+        z: corrMatrix,
+        x: symbols,
+        y: symbols,
+        zmin: -1,
+        zmax: 1,
+        type: 'heatmap',
+        colorscale: 'Viridis',
+        text: corrMatrix.map(r => r.map(v => v.toFixed(2))),
+        texttemplate: "%{text}",   // แสดงตัวเลขบน heatmap
+        textfont: {color: 'white', size: 12},
+    }], {
+        title: 'Stock Price Correlation',
+        plot_bgcolor: '#111',
+        paper_bgcolor: '#111',
+        font: {color: '#00e5ff'}
+    });
+
 
     // Price Change Bar
+    const barColors = changes.map(c => c >= 0 ? 'green' : 'red');
+
     Plotly.newPlot('changeChart',[{
-        x:symbols,
-        y:changes,
-        type:'bar',
-        marker:{color:colors},
-        text:changes.map(d=>d+"%"),
-        textposition:'auto'
-    }],{title:'Price Change (%)',plot_bgcolor:'#111',paper_bgcolor:'#111',font:{color:'#00e5ff'}});
+        x: symbols,
+        y: changes,
+        type: 'bar',
+        marker: { color: barColors },
+        text: changes.map(d => d+"%"),
+        textposition: 'auto'
+    }], {
+        title: 'Price Change (%)',
+        plot_bgcolor: '#111',
+        paper_bgcolor: '#111',
+        font: {color:'#00e5ff'}
+    });
+
 
     // Historical Prices Line Chart
     const traces = symbols.map((s,i)=>({
