@@ -19,6 +19,51 @@ celery
 kombu
 tornado
 werkzeug
+pyspark==3.2.1# -----------------------------
+# Web app
+# -----------------------------
+flask
+flask_sqlalchemy
+wtforms
+SQLAlchemy
+werkzeug
+tornado
+
+# -----------------------------
+# Scheduler / Task queue
+# -----------------------------
+apscheduler
+celery
+kombu
+
+# -----------------------------
+# Data & Forecasting
+# -----------------------------
+yfinance
+statsmodels
+scikit-learn
+prophet==1.1.5
+
+# -----------------------------
+# Deep Learning
+# -----------------------------
+torch 
+torchvision 
+torchaudio
+transformers
+tf-keras
+
+# -----------------------------
+# External API / LLM
+# -----------------------------
+ollama
+
+# -----------------------------
+# Spark
+# -----------------------------
 pyspark==3.2.1
+
 SQLAlchemy
 wtforms
+
+prophet==1.1.5
