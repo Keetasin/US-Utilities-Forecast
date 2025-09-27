@@ -16,6 +16,32 @@ from datetime import datetime
 views = Blueprint('views', __name__)
 
 # ---------------------------
+# Helper: downsample historical
+# ---------------------------
+def downsample_historical(data, steps):
+    """ลด historical resolution ให้สอดคล้องกับ horizon"""
+    if not data or not isinstance(data, list):
+        return data
+    if steps <= 7:   # ❗ ไม่แตะ 1 week
+        return data
+
+    df = pd.DataFrame(data)
+    if "date" not in df or "price" not in df:
+        return data
+
+    df["date"] = pd.to_datetime(df["date"])
+    df.set_index("date", inplace=True)
+
+    if steps == 180:   # 6 เดือน → weekly
+        df = df.resample("W").last()
+    elif steps == 365: # 1 ปี → monthly
+        df = df.resample("M").last()
+    else:
+        return data
+
+    return [{"date": d.strftime("%Y-%m-%d"), "price": float(p)} for d, p in df["price"].items()]
+
+# ---------------------------
 # Home & Heatmap
 # ---------------------------
 @views.route('/')
@@ -66,8 +92,6 @@ def news(symbol):
         news_list = []
         summary = "No news yet. Will update at 20:00."
     return render_template("news.html", symbol=symbol, news=news_list[:5], summary=summary)
-
-
 
 # ---------------------------
 # Stock Analytics
@@ -134,114 +158,19 @@ def stock_analytics(symbol):
     )
 
 # ---------------------------
-# Dashboard
-# ---------------------------
-from datetime import datetime
-@views.route('/dashboard')
-def dashboard():
-    stocks = Stock.query.all()
-    
-    symbols, market_caps, colors = [], [], []
-    dividend_yields, pe_ratios, betas, pb_ratios = [], [], [], []
-    high_52w, low_52w, ytd_changes, avg_volumes = [], [], [], []
-
-    hist_prices_dict = {}
-    year_start = datetime(datetime.now().year, 1, 1)
-
-    for s in stocks:
-        symbols.append(s.symbol)
-        market_caps.append(s.marketCap)
-        colors.append(s.bg_color)
-
-        try:
-            info = yf.Ticker(s.symbol).info
-        except:
-            info = {}
-
-        dy_raw = info.get("dividendYield", 0) or 0
-        dy = round(dy_raw*100,2) if dy_raw < 1 else round(dy_raw,2)
-        dividend_yields.append(dy)
-
-        pe_ratios.append(round(info.get("trailingPE", 0) or 0,2))
-        betas.append(round(info.get("beta", 0) or 0,2))
-        pb_ratios.append(round(info.get("priceToBook", 0) or 0,2))
-
-        high_52w.append(round(info.get("fiftyTwoWeekHigh",0) or 0,2))
-        low_52w.append(round(info.get("fiftyTwoWeekLow",0) or 0,2))
-        avg_volumes.append(round(info.get("averageVolume",0) or 0))
-
-        try:
-            hist = yf.Ticker(s.symbol).history(start=year_start)['Close']
-            hist_prices_dict[s.symbol] = hist
-        except:
-            hist_prices_dict[s.symbol] = pd.Series([0])
-
-        if not hist_prices_dict[s.symbol].empty:
-            ytd = round((hist_prices_dict[s.symbol].iloc[-1] - hist_prices_dict[s.symbol].iloc[0]) / hist_prices_dict[s.symbol].iloc[0] * 100,2)
-        else:
-            ytd = 0
-        ytd_changes.append(ytd)
-
-    all_dates = sorted(set(date.date() for s in hist_prices_dict.values() for date in s.index))
-    historical_dates = [str(d) for d in all_dates]
-
-    historical_prices = []
-    for sym in symbols:
-        series = hist_prices_dict[sym]
-        prices_aligned, last_val, idx = [], (series.iloc[0] if not series.empty else 0), 0
-        for d in all_dates:
-            if idx < len(series) and series.index[idx].date() == d:
-                last_val = series.iloc[idx]
-                idx += 1
-            prices_aligned.append(last_val)
-        historical_prices.append(prices_aligned)
-
-    return render_template(
-        'dashboard.html',
-        stocks=stocks,
-        symbols=symbols,
-        market_caps=market_caps,
-        colors=colors,
-        dividend_yields=dividend_yields,
-        pe_ratios=pe_ratios,
-        betas=betas,
-        pb_ratios=pb_ratios,
-        high_52w=high_52w,
-        low_52w=low_52w,
-        ytd_changes=ytd_changes,
-        avg_volumes=avg_volumes,
-        historical_prices=historical_prices,
-        historical_dates=historical_dates
-    )
-
-
-
-
-
-
-
-
-
-
-
-
-# ---------------------------
 # Forecasting (DB first)
 # ---------------------------
 @views.route('/forecasting/<symbol>/<model>')
 def forecasting(symbol, model):
     model = (model or "arima").lower()
-    steps = int(request.args.get("steps", 7))   # horizon (7, 90, 365)
+    steps = int(request.args.get("steps", 7))
 
-    # ✅ 1) Query DB ก่อน
     fc = StockForecast.query.filter_by(symbol=symbol, model=model, steps=steps).first()
 
-    # ✅ 2) ถ้า DB ไม่มีข้อมูล → update_forecast แบบ on-demand
     if not fc:
         update_forecast(current_app, [symbol], models=[model], steps_list=[steps])
         fc = StockForecast.query.filter_by(symbol=symbol, model=model, steps=steps).first()
-
-        if not fc:  # ถ้า update แล้วยัง fail → return error
+        if not fc:
             return render_template(
                 "forecasting.html",
                 has_data=False,
@@ -253,28 +182,16 @@ def forecasting(symbol, model):
 
     forecast_json = fc.forecast_json
 
-    # Last price
-    last_price_val = getattr(fc, "last_price", None) or (forecast_json[0]["price"] if forecast_json else 0.0)
-
-    # Trend
-    trend = {
-        "direction": "Up" if forecast_json[-1]["price"] > last_price_val else "Down",
-        "icon": "🔼" if forecast_json[-1]["price"] > last_price_val else "🔽"
-    }
-
-
-    # Historical fallback
-    # Historical fallback
-    historical = getattr(fc, "historical_json", None) or []
+    # Historical (from DB or fallback)
+    historical = getattr(fc, "historical_json", None)
     if not historical:
         try:
-            # กำหนด period สำหรับ historical ยาวกว่าที่ forecast ใช้
             if steps == 7:
-                hist_period = "7d"       # 1 month
+                hist_period = "7d"
             elif steps == 180:
-                hist_period = "6mo"      # 1.5 year
+                hist_period = "6mo"
             elif steps == 365:
-                hist_period = "1y"        # 2 years
+                hist_period = "1y"
             else:
                 hist_period = get_period_by_model(model, steps)
 
@@ -290,26 +207,18 @@ def forecasting(symbol, model):
         except:
             historical = []
 
+    # ✅ Downsample historical (only after we have it)
+    historical = downsample_historical(historical, steps)
 
-    # Backtest fallback
     backtest = getattr(fc, "backtest_json", None) or []
     backtest_mae = getattr(fc, "backtest_mae", None)
-    if not backtest:
-        try:
-            s = pd.Series([d["price"] for d in historical], index=pd.to_datetime([d["date"] for d in historical]))
-            exog = None
-            if model == "sarimax":
-                oil = yf.download("CL=F", period="3y", progress=False, auto_adjust=True)['Close'].dropna()
-                oil = ensure_datetime_freq(oil)
-                oil = oil.reindex(s.index).fillna(method="ffill")
-                exog = oil
-            bt, mae = backtest_last_n_days(s, model_name=model, steps=steps, exog=exog)
-            backtest = series_to_chart_pairs_safe(bt)
-            backtest_mae = mae
-        except:
-            backtest, backtest_mae = [], 0.0
 
-    backtest_mae_pct = (backtest_mae / last_price_val * 100.0) if last_price_val else 0.0
+    last_price_val = getattr(fc, "last_price", None) or (forecast_json[0]["price"] if forecast_json else 0.0)
+    trend = {
+        "direction": "Up" if forecast_json and forecast_json[-1]["price"] > last_price_val else "Down",
+        "icon": "🔼" if forecast_json and forecast_json[-1]["price"] > last_price_val else "🔽"
+    }
+    backtest_mae_pct = (backtest_mae / last_price_val * 100.0) if last_price_val and backtest_mae else 0.0
 
     return render_template(
         "forecasting.html",
@@ -327,12 +236,6 @@ def forecasting(symbol, model):
         last_updated=fc.updated_at.strftime("%Y-%m-%d %H:%M")
     )
 
-
-
-
-
-
-
 # ---------------------------
 # Compare
 # ---------------------------
@@ -342,7 +245,6 @@ def compare_models(symbol):
     results, historical, last_price = {}, [], None
     models = ["arima", "sarima", "sarimax", "lstm"]
 
-    # ตรวจสอบ forecast สำหรับ steps ปัจจุบัน
     for m in models:
         fc = StockForecast.query.filter_by(symbol=symbol, model=m, steps=steps).first()
         if not fc:
@@ -352,22 +254,20 @@ def compare_models(symbol):
             results[m] = {"ok": False, "error": f"No forecast for {m.upper()} ({steps}d)"}
             continue
 
-        # Forecast + Backtest
         forecast_json = fc.forecast_json or []
         backtest_json = getattr(fc, "backtest_json", []) or []
         backtest_mae = getattr(fc, "backtest_mae", 0)
 
-        # Historical
-        h = getattr(fc, "historical_json", None) or []
+        # Historical (from DB or fallback)
+        h = getattr(fc, "historical_json", None)
         if not h:
             try:
-                # กำหนด period สำหรับ historical ยาวกว่าที่ forecast ใช้
                 if steps == 7:
-                    hist_period = "7d"       # 1 month
+                    hist_period = "7d"
                 elif steps == 180:
-                    hist_period = "6mo"      # 1.5 year
+                    hist_period = "6mo"
                 elif steps == 365:
-                    hist_period = "1y"        # 2 years
+                    hist_period = "1y"
                 else:
                     hist_period = get_period_by_model(m, steps)
 
@@ -381,22 +281,22 @@ def compare_models(symbol):
                 h = series_to_chart_pairs_safe(full_close)
             except:
                 h = []
-        historical = h  # ใช้ historical ของ model ล่าสุดที่มี
-        last_price = round(to_scalar(full_close.iloc[-1]) if h else forecast_json[0]["price"], 2)
 
+        # ✅ Downsample
+        historical = downsample_historical(h, steps)
+        last_price = round(to_scalar(h[-1]["price"]) if h else forecast_json[0]["price"], 2)
 
         backtest_mae_pct = (backtest_mae / last_price * 100.0) if last_price else 0.0
         results[m] = {
             "ok": True,
             "forecast": forecast_json,
-            "historical": h,
+            "historical": historical,
             "backtest": backtest_json,
             "backtest_mae": backtest_mae,
             "backtest_mae_pct": backtest_mae_pct,
             "forecast_last": round(forecast_json[-1]["price"], 2) if forecast_json else None
         }
 
-    # หา best model
     best_model, best_mae = None, None
     for m in models:
         if results.get(m, {}).get("ok"):

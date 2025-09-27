@@ -136,13 +136,26 @@ def choose_seasonal_m(steps: int) -> int:
     else: return 252
 
 # ==========================
+# NEW: Downsample forecast series
+# ==========================
+def downsample_forecast_series(fc: pd.Series, steps: int) -> pd.Series:
+    """ลดจำนวนจุด forecast/backtest ให้เหลือ monthly outlook"""
+    if fc is None or fc.empty:
+        return fc
+    if steps == 180:   # 6 เดือน → 6 จุด
+        return fc.resample("M").last().iloc[:6]
+    elif steps == 365: # 1 ปี → 12 จุด
+        return fc.resample("M").last().iloc[:12]
+    return fc
+
+# ==========================
 # LSTM (เวอร์ชันเพื่อน ปรับใช้กับเรา)
 # ==========================
 def lstm_forecast_better(series: pd.Series,
                          exog: pd.DataFrame | None = None,
                          steps: int = 7,
                          lookback: int = 120,
-                         epochs: int = 30,
+                         epochs: int = 3,
                          batch_size: int = 64,
                          patience: int = 10) -> np.ndarray:
     s = ensure_datetime_freq(series).astype(np.float32)
@@ -252,7 +265,9 @@ def backtest_last_n_days(series: pd.Series, model_name: str, steps=7, exog=None,
         raise ValueError("Unknown model")
 
     mae = mean_absolute_error(true_future.values, fc.values)
-    return pd.Series(fc.values, index=true_future.index), mae
+    fc = pd.Series(fc.values, index=true_future.index)
+    fc = downsample_forecast_series(fc, steps)  # ✅ ลดจุดก่อน return
+    return fc, mae
 
 def future_forecast(series: pd.Series, model_name: str, steps=7, exog=None, symbol="GENERIC"):
     s = ensure_datetime_freq(series)
@@ -288,11 +303,13 @@ def future_forecast(series: pd.Series, model_name: str, steps=7, exog=None, symb
     elif model_name == "lstm":
         vals = lstm_forecast_better(s, exog=exog, steps=steps_b)
         fc = pd.Series(vals, index=to_bday_future_index(last_dt, steps_b))
+        fc = downsample_forecast_series(fc, steps)  # ✅ ลดจุด
         return fc
     else:
         raise ValueError("Unknown model")
 
     fc = pd.Series(fc.values, index=to_bday_future_index(last_dt, steps_b))
+    fc = downsample_forecast_series(fc, steps)  # ✅ ลดจุด
     return fc
 
 # ==========================
