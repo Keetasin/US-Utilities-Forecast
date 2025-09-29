@@ -158,7 +158,87 @@ def stock_analytics(symbol):
     )
 
 # ---------------------------
-# Forecasting (DB first)
+# Dashboard
+# ---------------------------
+@views.route('/dashboard')
+def dashboard():
+    stocks = Stock.query.all()
+    
+    symbols, market_caps, colors = [], [], []
+    dividend_yields, pe_ratios, betas, pb_ratios = [], [], [], []
+    high_52w, low_52w, ytd_changes, avg_volumes = [], [], [], []
+
+    hist_prices_dict = {}
+    year_start = datetime(datetime.now().year, 1, 1)
+
+    for s in stocks:
+        symbols.append(s.symbol)
+        market_caps.append(s.marketCap)
+        colors.append(s.bg_color)
+
+        try:
+            info = yf.Ticker(s.symbol).info
+        except:
+            info = {}
+
+        dy_raw = info.get("dividendYield", 0) or 0
+        dy = round(dy_raw*100,2) if dy_raw < 1 else round(dy_raw,2)
+        dividend_yields.append(dy)
+
+        pe_ratios.append(round(info.get("trailingPE", 0) or 0,2))
+        betas.append(round(info.get("beta", 0) or 0,2))
+        pb_ratios.append(round(info.get("priceToBook", 0) or 0,2))
+
+        high_52w.append(round(info.get("fiftyTwoWeekHigh",0) or 0,2))
+        low_52w.append(round(info.get("fiftyTwoWeekLow",0) or 0,2))
+        avg_volumes.append(round(info.get("averageVolume",0) or 0))
+
+        try:
+            hist = yf.Ticker(s.symbol).history(start=year_start)['Close']
+            hist_prices_dict[s.symbol] = hist
+        except:
+            hist_prices_dict[s.symbol] = pd.Series([0])
+
+        if not hist_prices_dict[s.symbol].empty:
+            ytd = round((hist_prices_dict[s.symbol].iloc[-1] - hist_prices_dict[s.symbol].iloc[0]) / hist_prices_dict[s.symbol].iloc[0] * 100,2)
+        else:
+            ytd = 0
+        ytd_changes.append(ytd)
+
+    all_dates = sorted(set(date.date() for s in hist_prices_dict.values() for date in s.index))
+    historical_dates = [str(d) for d in all_dates]
+
+    historical_prices = []
+    for sym in symbols:
+        series = hist_prices_dict[sym]
+        prices_aligned, last_val, idx = [], (series.iloc[0] if not series.empty else 0), 0
+        for d in all_dates:
+            if idx < len(series) and series.index[idx].date() == d:
+                last_val = series.iloc[idx]
+                idx += 1
+            prices_aligned.append(last_val)
+        historical_prices.append(prices_aligned)
+
+    return render_template(
+        'dashboard.html',
+        stocks=stocks,
+        symbols=symbols,
+        market_caps=market_caps,
+        colors=colors,
+        dividend_yields=dividend_yields,
+        pe_ratios=pe_ratios,
+        betas=betas,
+        pb_ratios=pb_ratios,
+        high_52w=high_52w,
+        low_52w=low_52w,
+        ytd_changes=ytd_changes,
+        avg_volumes=avg_volumes,
+        historical_prices=historical_prices,
+        historical_dates=historical_dates
+    )
+
+# ---------------------------
+# Forecasting
 # ---------------------------
 @views.route('/forecasting/<symbol>/<model>')
 def forecasting(symbol, model):
@@ -207,7 +287,7 @@ def forecasting(symbol, model):
         except:
             historical = []
 
-    # ✅ Downsample historical (only after we have it)
+    # ✅ Downsample historical
     historical = downsample_historical(historical, steps)
 
     backtest = getattr(fc, "backtest_json", None) or []
