@@ -35,7 +35,10 @@ def start_stock_scheduler(app):
     stock_scheduler.add_job(
         func=lambda: update_stock_data(app),
         trigger="interval",
-        minutes=1
+        minutes=1,
+        max_instances=1,   
+        misfire_grace_time=30
+
     )
     stock_scheduler.start()
     print("Stock scheduler started ✅")
@@ -64,13 +67,15 @@ def start_news_scheduler(app):
                     print(f"News outdated -> Fetch once for {t}")
                     update_stock_news(app, [t])
 
-    # Schedule daily at 20:00
+    # Schedule daily
     news_scheduler.add_job(
         func=lambda: update_stock_news(app, TICKERS),
         trigger="cron",
-        hour=20,
-        minute=0,
-        timezone=tz_th
+        hour=19,
+        minute=00,
+        timezone=tz_th,
+        max_instances=1,          
+        misfire_grace_time=300 
     )
     news_scheduler.start()
     print("News scheduler started ✅")
@@ -104,13 +109,15 @@ def start_forecast_scheduler(app):
                             print(f"Forecast outdated -> Update {t}-{m}-{steps}d")
                             update_forecast(app, [t], models=[m], steps_list=[steps])
 
-    # ✅ Schedule daily at 20:00
+    # Schedule daily
     forecast_scheduler.add_job(
         func=lambda: update_forecast(app, TICKERS, models=["arima", "sarima", "sarimax", "lstm"], steps_list=[7,90,365]),
         trigger="cron",
-        hour=20,
-        minute=0,
-        timezone=tz_th
+        hour=19,
+        minute=30,
+        timezone=tz_th,
+        max_instances=1,         
+        misfire_grace_time=300 
     )
     forecast_scheduler.start()
-    print("Forecast scheduler started ✅ (20:00 daily)")
+    print("Forecast scheduler started ✅")
