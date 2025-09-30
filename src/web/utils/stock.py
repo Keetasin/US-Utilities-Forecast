@@ -27,18 +27,26 @@ def fetch_and_update_stock(ticker):
         return float(round(close, 2)), float(round(change_pct, 2)), int(cap) if cap else None, bg_color
     return None, None, None, None
 
-
+tz_ny = pytz.timezone("America/New_York")
+tz_th = pytz.timezone("Asia/Bangkok")
 def update_stock_data(app, force=False):
-    tz_th = pytz.timezone("Asia/Bangkok")  
-    market_open = time(9,30)
-    market_close = time(16,0)
+    market_open = time(9, 30)
+    market_close = time(16, 0)
+    
     now_utc = datetime.utcnow().replace(tzinfo=timezone.utc)
-    now_th = now_utc.astimezone(tz_th)
-    update_allowed = force or (market_open <= now_th.time() <= market_close)
-
-    if not update_allowed:
-        print(f"[{now_th}] Market closed. Stock update skipped.")  # <-- เพิ่มเพื่อ debug
-        return
+    now_ny = now_utc.astimezone(tz_ny)
+    
+    # เช็ควันทำการตลาด: 0=จันทร์ ... 4=ศุกร์
+    is_weekday = now_ny.weekday() < 5
+    in_market_hours = market_open <= now_ny.time() <= market_close
+    
+    if not force:
+        if not is_weekday:
+            print(f"[{now_ny}] Today is weekend. Market closed.")
+            return
+        if not in_market_hours:
+            print(f"[{now_ny}] Outside market hours ({market_open}-{market_close} ET). Stock update skipped.")
+            return
 
     with app.app_context():
         for t in TICKERS:

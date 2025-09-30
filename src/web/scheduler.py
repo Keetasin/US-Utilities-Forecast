@@ -6,6 +6,7 @@ from datetime import datetime, time, timedelta
 import pytz
 
 tz_th = pytz.timezone("Asia/Bangkok")
+tz_ny = pytz.timezone("America/New_York")
 
 # ---------------------------
 # Stock Scheduler
@@ -34,11 +35,13 @@ def start_stock_scheduler(app):
     # 2) อยู่ในช่วงตลาดเปิด -> run ทุก 1 นาที
     stock_scheduler.add_job(
         func=lambda: update_stock_data(app),
-        trigger="interval",
-        minutes=1,
-        max_instances=1,   
+        trigger='cron',
+        day_of_week='mon-fri',
+        hour='9-15',       
+        minute='*',
+        timezone=tz_ny,
+        max_instances=1,
         misfire_grace_time=30
-
     )
     stock_scheduler.start()
     print("Stock scheduler started ✅")
@@ -71,6 +74,7 @@ def start_news_scheduler(app):
     news_scheduler.add_job(
         func=lambda: update_stock_news(app, TICKERS),
         trigger="cron",
+        day_of_week='mon-fri',
         hour=19,
         minute=00,
         timezone=tz_th,
@@ -113,6 +117,7 @@ def start_forecast_scheduler(app):
     forecast_scheduler.add_job(
         func=lambda: update_forecast(app, TICKERS, models=["arima", "sarima", "sarimax", "lstm"], steps_list=[7,90,365]),
         trigger="cron",
+        day_of_week='mon-fri',
         hour=19,
         minute=30,
         timezone=tz_th,
