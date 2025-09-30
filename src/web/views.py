@@ -224,24 +224,46 @@ def dashboard():
 
 
 
+# ---------------------------
+# Helper: downsample historical
+# ---------------------------
+def downsample_historical(data, steps):
+    """ลด historical resolution ให้สอดคล้องกับ horizon"""
+    if not data or not isinstance(data, list):
+        return data
+    if steps <= 7:   # ❗ ไม่แตะ 1 week
+        return data
+
+    df = pd.DataFrame(data)
+    if "date" not in df or "price" not in df:
+        return data
+
+    df["date"] = pd.to_datetime(df["date"])
+    df.set_index("date", inplace=True)
+
+    if steps == 180:   # 6 เดือน → weekly
+        df = df.resample("W").last()
+    elif steps == 365: # 1 ปี → monthly
+        df = df.resample("M").last()
+    else:
+        return data
+
+    return [{"date": d.strftime("%Y-%m-%d"), "price": float(p)} for d, p in df["price"].items()]
 
 # ---------------------------
-# Forecasting (DB first)
+# Forecasting
 # ---------------------------
 @views.route('/forecasting/<symbol>/<model>')
 def forecasting(symbol, model):
     model = (model or "arima").lower()
-    steps = int(request.args.get("steps", 7))   # horizon (7, 90, 365)
+    steps = int(request.args.get("steps", 7))
 
-    # ✅ 1) Query DB ก่อน
     fc = StockForecast.query.filter_by(symbol=symbol, model=model, steps=steps).first()
 
-    # ✅ 2) ถ้า DB ไม่มีข้อมูล → update_forecast แบบ on-demand
     if not fc:
         update_forecast(current_app, [symbol], models=[model], steps_list=[steps])
         fc = StockForecast.query.filter_by(symbol=symbol, model=model, steps=steps).first()
-
-        if not fc:  # ถ้า update แล้วยัง fail → return error
+        if not fc:
             return render_template(
                 "forecasting.html",
                 has_data=False,
@@ -253,28 +275,16 @@ def forecasting(symbol, model):
 
     forecast_json = fc.forecast_json
 
-    # Last price
-    last_price_val = getattr(fc, "last_price", None) or (forecast_json[0]["price"] if forecast_json else 0.0)
-
-    # Trend
-    trend = {
-        "direction": "Up" if forecast_json[-1]["price"] > last_price_val else "Down",
-        "icon": "🔼" if forecast_json[-1]["price"] > last_price_val else "🔽"
-    }
-
-
-    # Historical fallback
-    # Historical fallback
-    historical = getattr(fc, "historical_json", None) or []
+    # Historical (from DB or fallback)
+    historical = getattr(fc, "historical_json", None)
     if not historical:
         try:
-            # กำหนด period สำหรับ historical ยาวกว่าที่ forecast ใช้
             if steps == 7:
-                hist_period = "7d"       # 1 month
+                hist_period = "7d"
             elif steps == 180:
-                hist_period = "6mo"      # 1.5 year
+                hist_period = "6mo"
             elif steps == 365:
-                hist_period = "1y"        # 2 years
+                hist_period = "1y"
             else:
                 hist_period = get_period_by_model(model, steps)
 
@@ -290,26 +300,18 @@ def forecasting(symbol, model):
         except:
             historical = []
 
+    # ✅ Downsample historical
+    historical = downsample_historical(historical, steps)
 
-    # Backtest fallback
     backtest = getattr(fc, "backtest_json", None) or []
     backtest_mae = getattr(fc, "backtest_mae", None)
-    if not backtest:
-        try:
-            s = pd.Series([d["price"] for d in historical], index=pd.to_datetime([d["date"] for d in historical]))
-            exog = None
-            if model == "sarimax":
-                oil = yf.download("CL=F", period="3y", progress=False, auto_adjust=True)['Close'].dropna()
-                oil = ensure_datetime_freq(oil)
-                oil = oil.reindex(s.index).fillna(method="ffill")
-                exog = oil
-            bt, mae = backtest_last_n_days(s, model_name=model, steps=steps, exog=exog)
-            backtest = series_to_chart_pairs_safe(bt)
-            backtest_mae = mae
-        except:
-            backtest, backtest_mae = [], 0.0
 
-    backtest_mae_pct = (backtest_mae / last_price_val * 100.0) if last_price_val else 0.0
+    last_price_val = getattr(fc, "last_price", None) or (forecast_json[0]["price"] if forecast_json else 0.0)
+    trend = {
+        "direction": "Up" if forecast_json and forecast_json[-1]["price"] > last_price_val else "Down",
+        "icon": "🔼" if forecast_json and forecast_json[-1]["price"] > last_price_val else "🔽"
+    }
+    backtest_mae_pct = (backtest_mae / last_price_val * 100.0) if last_price_val and backtest_mae else 0.0
 
     return render_template(
         "forecasting.html",
@@ -326,6 +328,9 @@ def forecasting(symbol, model):
         steps=steps,
         last_updated=fc.updated_at.strftime("%Y-%m-%d %H:%M")
     )
+
+
+
 
 
 
