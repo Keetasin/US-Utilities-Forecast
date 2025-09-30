@@ -142,3 +142,10 @@ body::before {
     box-shadow: 0 0 20px rgba(0, 229, 255, 0.8);
     transform: scale(1.05);
 }
+
+/* --- Force white ticker text inside the cards --- */
+.stock-card h3,
+.stock-card .ticker{
+  color: #ffffff !important;      /* เปลี่ยนเป็นขาวล้วน */
+  text-shadow: 0 1px 2px rgba(0,0,0,.25); /* ช่วยให้อ่านชัดบนพื้นเขียว (ลบได้ถ้าไม่ชอบ) */
+}
