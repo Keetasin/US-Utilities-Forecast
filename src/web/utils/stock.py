@@ -29,14 +29,15 @@ def fetch_and_update_stock(ticker):
 
 
 def update_stock_data(app, force=False):
-    tz_th = pytz.timezone("Asia/Bangkok")
+    tz_th = pytz.timezone("Asia/Bangkok")  
     market_open = time(9,30)
     market_close = time(16,0)
-
-    now_utc = datetime.utcnow()
-    update_allowed = force or (market_open <= now_utc.time() <= market_close)
+    now_utc = datetime.utcnow().replace(tzinfo=timezone.utc)
+    now_th = now_utc.astimezone(tz_th)
+    update_allowed = force or (market_open <= now_th.time() <= market_close)
 
     if not update_allowed:
+        print(f"[{now_th}] Market closed. Stock update skipped.")  # <-- เพิ่มเพื่อ debug
         return
 
     with app.app_context():
