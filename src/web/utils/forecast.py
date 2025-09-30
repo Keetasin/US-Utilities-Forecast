@@ -11,7 +11,7 @@ from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
 import yfinance as yf
 from ..models import StockForecast
 from .. import db
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # ==========================
 # Custom parameters for each stock
@@ -136,7 +136,7 @@ def choose_seasonal_m(steps: int) -> int:
     else: return 252
 
 # ==========================
-# NEW: Downsample forecast series
+# Downsample forecast/backtest series
 # ==========================
 def downsample_forecast_series(fc: pd.Series, steps: int) -> pd.Series:
     if fc is None or fc.empty:
@@ -144,7 +144,7 @@ def downsample_forecast_series(fc: pd.Series, steps: int) -> pd.Series:
     if steps == 180:   # 6 เดือน → 6 จุด
         return fc.resample("M").last().iloc[:6]
     elif steps == 365: # 1 ปี → 12 จุด
-        return fc.resample("M").last().iloc[:12]
+        return fc.resample("ME").last().iloc[:12]
     return fc
 
 # ==========================
@@ -205,7 +205,7 @@ def lstm_forecast_better(series: pd.Series,
               epochs=epochs, batch_size=batch_size, verbose=0, callbacks=cbs)
 
     last_window = scaled_data[-lookback:].copy()
-    pred_prices, last_price = [], float(s.iloc[-1])
+    pred_prices, last_price = [], float(s.iloc[-1].item())
 
     for _ in range(steps):
         x = last_window.reshape(1, lookback, num_features)
@@ -249,9 +249,7 @@ def backtest_last_n_days(series: pd.Series, model_name: str, steps=7, exog=None,
         if exog is None:
             raise ValueError("SARIMAX requires exogenous variable (exog).")
         exog = ensure_datetime_freq(exog).reindex(s.index)
-        exog = exog.ffill().bfill()
-        exog = exog.replace([np.inf, -np.inf], np.nan).fillna(0)
-
+        exog = exog.ffill().bfill().replace([np.inf, -np.inf], np.nan).fillna(0)
         exog_train = exog.iloc[:-steps_b]
         exog_future = exog.iloc[-steps_b:]
         m_val = choose_seasonal_m(steps_b)
@@ -291,15 +289,11 @@ def future_forecast(series: pd.Series, model_name: str, steps=7, exog=None, symb
         if exog is None:
             raise ValueError("SARIMAX requires exogenous variable (exog).")
         exog_hist = ensure_datetime_freq(exog).reindex(s.index)
-        exog_hist = exog_hist.ffill().bfill()
-        exog_hist = exog_hist.replace([np.inf, -np.inf], np.nan).fillna(0)
-
+        exog_hist = exog_hist.ffill().bfill().replace([np.inf, -np.inf], np.nan).fillna(0)
         exog_future = pd.DataFrame(index=to_bday_future_index(last_dt, steps_b))
         for col in exog_hist.columns:
             exog_future[col] = forecast_exog_series(exog_hist[col], steps_b)
-
         exog_future = exog_future.replace([np.inf, -np.inf], np.nan).fillna(0)
-
         m_val = choose_seasonal_m(steps_b)
         m = SARIMAX(s, order=order,
                     seasonal_order=(seasonal_order[0], seasonal_order[1], seasonal_order[2], m_val),
@@ -319,14 +313,31 @@ def future_forecast(series: pd.Series, model_name: str, steps=7, exog=None, symb
     return fc
 
 # ==========================
-# Update forecast
+# Update forecast (แก้ตามเงื่อนไข 20:00)
 # ==========================
 def update_forecast(app, tickers, models=["arima","sarima","sarimax","lstm"], steps_list=[7,90,365]):
+    from pytz import timezone, UTC
+
+    tz_th = timezone("Asia/Bangkok")
+    now_th = datetime.now(tz_th)
+
+    # cutoff = 20:00 วันนี้ หรือของเมื่อวานถ้ายังไม่ถึง
+    today_20 = now_th.replace(hour=20, minute=0, second=0, microsecond=0)
+    cutoff = today_20 if now_th >= today_20 else today_20 - timedelta(days=1)
+
     with app.app_context():
         for symbol in tickers:
             for m in models:
                 for steps in steps_list:
                     try:
+                        fc = StockForecast.query.filter_by(symbol=symbol, model=m, steps=steps).first()
+                        if fc and fc.updated_at:
+                            last_update_th = fc.updated_at.replace(tzinfo=UTC).astimezone(tz_th)
+                            if last_update_th >= cutoff:
+                                print(f"[Forecast] Skip {symbol}-{m}-{steps}d (already updated after cutoff {cutoff})")
+                                continue
+
+                        # --- โหลดข้อมูลใหม่ ---
                         period = get_period_by_model(m, steps)
                         data = yf.download(symbol, period=period, progress=False, auto_adjust=True)['Close'].dropna()
                         data = ensure_datetime_freq(data)
@@ -337,20 +348,22 @@ def update_forecast(app, tickers, models=["arima","sarima","sarimax","lstm"], st
                         exog = None
                         if m in ["sarimax","lstm"]:
                             exog_all = get_exogenous(period=period)
-                            exog_all = exog_all.reindex(data.index)
-                            exog_all = exog_all.ffill().bfill()
+                            exog_all = exog_all.reindex(data.index).ffill().bfill()
                             exog_all = exog_all.replace([np.inf, -np.inf], np.nan).fillna(0)
                             exog = exog_all
 
+                        # --- backtest ---
                         back_fc, back_mae = backtest_last_n_days(data, model_name=m, steps=steps, exog=exog, symbol=symbol)
+                        back_fc = downsample_forecast_series(back_fc, steps)
                         backtest_json = series_to_chart_pairs_safe(back_fc)
 
+                        # --- future forecast ---
                         fut_fc = future_forecast(data, model_name=m, steps=steps, exog=exog, symbol=symbol)
+                        fut_fc = downsample_forecast_series(fut_fc, steps)
                         forecast_json = series_to_chart_pairs_safe(fut_fc)
 
                         last_price = to_scalar(data.iloc[-1])
 
-                        fc = StockForecast.query.filter_by(symbol=symbol, model=m, steps=steps).first()
                         if not fc:
                             fc = StockForecast(symbol=symbol,
                                                model=m,

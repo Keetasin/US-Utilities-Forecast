@@ -85,7 +85,7 @@ def stock_analytics(symbol):
         info = stk_yf.info
 
         dividends = stk_yf.dividends
-        dividend_years = dividends.resample('Y').sum()
+        dividend_years = dividends.resample('YE').sum()
         dividend_years_dict = {d.strftime("%Y"): float(v) for d, v in dividend_years.items()}
 
         fin = stk_yf.financials
@@ -244,7 +244,7 @@ def downsample_historical(data, steps):
     if steps == 180:   # 6 เดือน → weekly
         df = df.resample("W").last()
     elif steps == 365: # 1 ปี → monthly
-        df = df.resample("M").last()
+        df = df.resample("ME").last()
     else:
         return data
 
@@ -368,11 +368,11 @@ def compare_models(symbol):
             try:
                 # กำหนด period สำหรับ historical ยาวกว่าที่ forecast ใช้
                 if steps == 7:
-                    hist_period = "7d"       # 1 month
+                    hist_period = "7d"
                 elif steps == 180:
-                    hist_period = "6mo"      # 1.5 year
+                    hist_period = "6mo"     # ขยายให้ยาวขึ้น
                 elif steps == 365:
-                    hist_period = "1y"        # 2 years
+                    hist_period = "1y"     # ขยายให้ยาวขึ้น
                 else:
                     hist_period = get_period_by_model(m, steps)
 
@@ -386,15 +386,17 @@ def compare_models(symbol):
                 h = series_to_chart_pairs_safe(full_close)
             except:
                 h = []
-        historical = h  # ใช้ historical ของ model ล่าสุดที่มี
-        last_price = round(to_scalar(full_close.iloc[-1]) if h else forecast_json[0]["price"], 2)
 
+        # ✅ Downsample historical ให้ match กับ horizon (7 วัน = daily, 6 เดือน = weekly, 1 ปี = monthly)
+        historical = downsample_historical(h, steps)
+
+        last_price = round(to_scalar(full_close.iloc[-1]) if h else forecast_json[0]["price"], 2)
 
         backtest_mae_pct = (backtest_mae / last_price * 100.0) if last_price else 0.0
         results[m] = {
             "ok": True,
             "forecast": forecast_json,
-            "historical": h,
+            "historical": historical,
             "backtest": backtest_json,
             "backtest_mae": backtest_mae,
             "backtest_mae_pct": backtest_mae_pct,
