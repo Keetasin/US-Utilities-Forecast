@@ -50,19 +50,19 @@ def update_stock_news(app, symbols):
         
 
 def initialize_news(app):
-    """Initialize news: fetch missing tickers OR update if last update before last cutoff (20:00 TH time)"""
+    """Initialize news: fetch missing tickers OR update if last update before last cutoff (19:00 TH time)"""
     from datetime import datetime, time, timedelta
     import pytz
 
     tz_th = pytz.timezone("Asia/Bangkok")
     now_th = datetime.now(tz_th)
 
-    # กำหนด cutoff = 20:00 ของวันนี้ หรือถ้ายังไม่ถึง -> ใช้ 20:00 ของเมื่อวาน
-    today_20 = now_th.replace(hour=20, minute=0, second=0, microsecond=0)
-    if now_th < today_20:
-        cutoff = today_20 - timedelta(days=1)
+    # กำหนด cutoff = 19:00 ของวันนี้ หรือถ้ายังไม่ถึง -> ใช้ 19:00 ของเมื่อวาน
+    today_19 = now_th.replace(hour=19, minute=0, second=0, microsecond=0)
+    if now_th < today_19:
+        cutoff = today_19 - timedelta(days=1)
     else:
-        cutoff = today_20
+        cutoff = today_19
 
     with app.app_context():
         for t in TICKERS:

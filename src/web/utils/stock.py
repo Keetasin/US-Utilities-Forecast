@@ -6,6 +6,8 @@ from .. import db
 
 
 TICKERS = ["AEP", "DUK", "SO", "ED", "EXC"]
+tz_ny = pytz.timezone("America/New_York")
+tz_th = pytz.timezone("Asia/Bangkok")
 
 def fetch_and_update_stock(ticker):
     stock = yf.Ticker(ticker)
@@ -27,8 +29,7 @@ def fetch_and_update_stock(ticker):
         return float(round(close, 2)), float(round(change_pct, 2)), int(cap) if cap else None, bg_color
     return None, None, None, None
 
-tz_ny = pytz.timezone("America/New_York")
-tz_th = pytz.timezone("Asia/Bangkok")
+
 def update_stock_data(app, force=False):
     market_open = time(9, 30)
     market_close = time(16, 0)

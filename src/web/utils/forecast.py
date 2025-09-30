@@ -313,7 +313,7 @@ def future_forecast(series: pd.Series, model_name: str, steps=7, exog=None, symb
     return fc
 
 # ==========================
-# Update forecast (แก้ตามเงื่อนไข 20:00)
+# Update forecast (แก้ตามเงื่อนไข 19:30)
 # ==========================
 def update_forecast(app, tickers, models=["arima","sarima","sarimax","lstm"], steps_list=[7,90,365]):
     from pytz import timezone, UTC
@@ -321,9 +321,9 @@ def update_forecast(app, tickers, models=["arima","sarima","sarimax","lstm"], st
     tz_th = timezone("Asia/Bangkok")
     now_th = datetime.now(tz_th)
 
-    # cutoff = 20:00 วันนี้ หรือของเมื่อวานถ้ายังไม่ถึง
-    today_20 = now_th.replace(hour=20, minute=0, second=0, microsecond=0)
-    cutoff = today_20 if now_th >= today_20 else today_20 - timedelta(days=1)
+    # cutoff = 19:30 วันนี้ หรือของเมื่อวานถ้ายังไม่ถึง
+    today_19_30 = now_th.replace(hour=19, minute=30, second=0, microsecond=0)
+    cutoff = today_19_30 if now_th >= today_19_30 else today_19_30 - timedelta(days=1)
 
     with app.app_context():
         for symbol in tickers:

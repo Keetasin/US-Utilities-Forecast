@@ -33,16 +33,30 @@ def start_stock_scheduler(app):
                     update_stock_data(app, force=True)
 
     # 2) อยู่ในช่วงตลาดเปิด -> run ทุก 1 นาที
+    # 9:30–9:59
     stock_scheduler.add_job(
         func=lambda: update_stock_data(app),
         trigger='cron',
         day_of_week='mon-fri',
-        hour='9-15',       
+        hour=9,
+        minute='30-59',
+        timezone=tz_ny,
+        max_instances=1,
+        misfire_grace_time=30
+    )
+
+    # 10:00–15:59
+    stock_scheduler.add_job(
+        func=lambda: update_stock_data(app),
+        trigger='cron',
+        day_of_week='mon-fri',
+        hour='10-15',
         minute='*',
         timezone=tz_ny,
         max_instances=1,
         misfire_grace_time=30
     )
+
     stock_scheduler.start()
     print("Stock scheduler started ✅")
 
@@ -56,8 +70,8 @@ def start_news_scheduler(app):
     with app.app_context():
         from .models import StockNews
         now_th = datetime.now(tz_th)
-        today_20 = now_th.replace(hour=20, minute=0, second=0, microsecond=0)
-        cutoff = today_20 if now_th >= today_20 else today_20 - timedelta(days=1)
+        today_19 = now_th.replace(hour=19, minute=0, second=0, microsecond=0)
+        cutoff = today_19 if now_th >= today_19 else today_19 - timedelta(days=1)
 
         for t in TICKERS:
             sn = StockNews.query.filter_by(symbol=t).first()
@@ -94,8 +108,8 @@ def start_forecast_scheduler(app):
     from .models import StockForecast
     with app.app_context():
         now_th = datetime.now(tz_th)
-        today_20 = now_th.replace(hour=20, minute=0, second=0, microsecond=0)
-        cutoff = today_20 if now_th >= today_20 else today_20 - timedelta(days=1)
+        today_19_30 = now_th.replace(hour=19, minute=30, second=0, microsecond=0)
+        cutoff = today_19_30 if now_th >= today_19_30 else today_19_30 - timedelta(days=1)
 
         models = ["arima", "sarima", "sarimax", "lstm"]
         steps_list = [7, 90, 365]
