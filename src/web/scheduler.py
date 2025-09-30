@@ -35,7 +35,7 @@ def start_stock_scheduler(app):
     stock_scheduler.add_job(
         func=lambda: update_stock_data(app),
         trigger="interval",
-        minutes=30,
+        minutes=1,
         max_instances=1,   
         misfire_grace_time=30
 
