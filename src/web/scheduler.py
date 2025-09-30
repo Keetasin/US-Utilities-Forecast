@@ -112,7 +112,7 @@ def start_forecast_scheduler(app):
         cutoff = today_19_30 if now_th >= today_19_30 else today_19_30 - timedelta(days=1)
 
         models = ["arima", "sarima", "sarimax", "lstm"]
-        steps_list = [7, 90, 365]
+        steps_list = [7, 180, 365]
 
         for t in TICKERS:
             for m in models:
@@ -129,7 +129,7 @@ def start_forecast_scheduler(app):
 
     # Schedule daily
     forecast_scheduler.add_job(
-        func=lambda: update_forecast(app, TICKERS, models=["arima", "sarima", "sarimax", "lstm"], steps_list=[7,90,365]),
+        func=lambda: update_forecast(app, TICKERS, models=["arima", "sarima", "sarimax", "lstm"], steps_list=[7,180,365]),
         trigger="cron",
         day_of_week='mon-fri',
         hour=19,

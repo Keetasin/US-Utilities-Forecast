@@ -79,7 +79,7 @@ def forecast_exog_series(exog_series: pd.Series, steps: int, order=(1,1,1)):
 # ==========================
 # Mapping calendar horizon → BDays
 # ==========================
-CALENDAR_TO_BDAYS = {7: 5, 90: 63, 180: 126, 365: 252}
+CALENDAR_TO_BDAYS = {7: 5, 180: 126, 365: 252}
 
 def steps_to_bdays(steps: int) -> int:
     return CALENDAR_TO_BDAYS.get(steps, steps)
@@ -154,7 +154,7 @@ def lstm_forecast_better(series: pd.Series,
                          exog: pd.DataFrame | None = None,
                          steps: int = 7,
                          lookback: int = 120,
-                         epochs: int = 3,
+                         epochs: int = 1,
                          batch_size: int = 64,
                          patience: int = 10) -> np.ndarray:
     s = ensure_datetime_freq(series).astype(np.float32)
@@ -315,7 +315,7 @@ def future_forecast(series: pd.Series, model_name: str, steps=7, exog=None, symb
 # ==========================
 # Update forecast (แก้ตามเงื่อนไข 19:30)
 # ==========================
-def update_forecast(app, tickers, models=["arima","sarima","sarimax","lstm"], steps_list=[7,90,365]):
+def update_forecast(app, tickers, models=["arima","sarima","sarimax","lstm"], steps_list=[7,180,365]):
     from pytz import timezone, UTC
 
     tz_th = timezone("Asia/Bangkok")
