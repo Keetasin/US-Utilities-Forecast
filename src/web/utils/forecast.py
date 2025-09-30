@@ -12,6 +12,8 @@ import yfinance as yf
 from ..models import StockForecast
 from .. import db
 from datetime import datetime
+from typing import Optional
+
 
 # ==========================
 # Custom parameters for each stock
@@ -214,9 +216,10 @@ def future_forecast(series: pd.Series, model_name: str, steps=7, exog=None, symb
 # ==========================
 def lstm_forecast_simple(series: pd.Series,
                          steps=7,
-                         exog: pd.Series | None = None,
+                         exog: Optional[pd.Series] = None,
                          lookback: int = 120,
-                         epochs: int = 30,
+                        #  epochs: int = 30,
+                         epochs: int = 1,
                          batch_size: int = 64,
                          patience: int = 10):
     """

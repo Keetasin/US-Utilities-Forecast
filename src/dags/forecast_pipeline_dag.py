@@ -1,80 +1,64 @@
+import sys
+import os
+from datetime import datetime, timedelta
+
 from airflow import DAG
-from airflow.operators.dummy import DummyOperator
-from airflow.operators.python import PythonOperator, BranchPythonOperator
-from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
-from datetime import datetime
-import random
+from airflow.operators.python import PythonOperator
 
-# ============= Branch logic =============
-def decide_forecast(**context):
-    """สุ่มตัดสินใจว่าจะทำ forecast ต่อหรือไม่"""
-    choice = random.choice(["do_forecast", "skip_forecast"])
-    print("Decision =", choice)
-    return choice
+# ---------------------------
+# Project paths
+# ---------------------------
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))  # src
+sys.path.append('/usr/local/airflow/web')  # absolute path ใน container
 
-# Push ค่า MAE ไป XCom
-def push_mae(**context):
-    mae = round(random.uniform(0.5, 2.0), 3)
-    context['ti'].xcom_push(key='mae', value=mae)
-    print("Pushed MAE =", mae)
+from web import create_app
+from web.utils.forecast import update_forecast
+from web.utils.stock import TICKERS
 
-# Pull ค่า MAE จาก XCom
-def update_db(**context):
-    mae = context['ti'].xcom_pull(task_ids='backtest_forecast', key='mae')
-    print("Update DB with forecast result, MAE =", mae)
+# ---------------------------
+# DAG default args
+# ---------------------------
+default_args = {
+    'owner': 'airflow',
+    'depends_on_past': False,
+    'email_on_failure': False,
+    'email_on_retry': False,
+    'retries': 1,
+    'retry_delay': timedelta(minutes=5),
+}
 
-# ============= Define DAG =============
-with DAG(
-    dag_id="forecast_pipeline_dag",
-    start_date=datetime(2025, 1, 1),
-    schedule_interval="@daily",
+# ---------------------------
+# DAG definition
+# ---------------------------
+dag = DAG(
+    'forecast_pipeline_test03',
+    default_args=default_args,
+    description='Forecast stock prices manually',
+    schedule_interval=None,   # manual trigger
+    start_date=datetime.now(),
     catchup=False,
-    tags=["project", "forecast"],
-) as dag:
+    tags=['stocks', 'forecast'],
+)
 
-    start = DummyOperator(task_id="start")
+# ---------------------------
+# Python callable tasks
+# ---------------------------
+def run_update_forecast_task(symbols=None):
+    app = create_app()
+    symbols = symbols or TICKERS
+    # update_forecast(app, tickers=symbols, models=["arima","sarima","sarimax","lstm"], steps_list=[7,90,365])
+    update_forecast(app, tickers=symbols, models=["arima"], steps_list=[7,90,365])
 
-    # Spark jobs
-    fetch_stock = SparkSubmitOperator(
-        task_id="fetch_stock",
-        application="/opt/spark-apps/load_data.py",
-        conn_id="spark_default"
-    )
+# ---------------------------
+# Airflow tasks
+# ---------------------------
+t_update_forecast = PythonOperator(
+    task_id='update_forecast_all',
+    python_callable=run_update_forecast_task,
+    dag=dag,
+)
 
-    update_stock = SparkSubmitOperator(
-        task_id="update_stock",
-        application="/opt/spark-apps/update_stock.py",
-        conn_id="spark_default"
-    )
-
-    forecast_pipeline = SparkSubmitOperator(
-        task_id="forecast_pipeline",
-        application="/opt/spark-apps/forecast_job.py",
-        conn_id="spark_default"
-    )
-
-    branch = BranchPythonOperator(
-        task_id="branch_decision",
-        python_callable=decide_forecast,
-        provide_context=True,
-    )
-
-    backtest = PythonOperator(
-        task_id="backtest_forecast",
-        python_callable=push_mae,
-        provide_context=True,
-    )
-
-    update_forecast = PythonOperator(
-        task_id="update_forecast_db",
-        python_callable=update_db,
-        provide_context=True,
-    )
-
-    skip = DummyOperator(task_id="skip_forecast")
-    end = DummyOperator(task_id="end")
-
-    # Workflow
-    start >> fetch_stock >> update_stock >> forecast_pipeline >> branch
-    branch >> backtest >> update_forecast >> end
-    branch >> skip >> end
+# ---------------------------
+# Task dependencies
+# ---------------------------
+# ตอนนี้ task เดียว ไม่มี dependency

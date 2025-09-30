@@ -1,25 +1,4 @@
-flask
-flask_sqlalchemy
-yfinance
-apscheduler
-statsmodels
-scikit-learn
-
-
-transformers
-torch 
-torchvision 
-torchaudio
-tf-keras
-ollama
-
-
-
-celery
-kombu
-tornado
-werkzeug
-pyspark==3.2.1# -----------------------------
+# -----------------------------
 # Web app
 # -----------------------------
 flask
@@ -42,14 +21,10 @@ kombu
 yfinance
 statsmodels
 scikit-learn
-prophet==1.1.5
 
 # -----------------------------
 # Deep Learning
 # -----------------------------
-torch 
-torchvision 
-torchaudio
 transformers
 tf-keras
 
@@ -63,7 +38,12 @@ ollama
 # -----------------------------
 pyspark==3.2.1
 
-SQLAlchemy
-wtforms
 
-prophet==1.1.5
+psycopg2-binary
+
+
+pandas 
+numpy 
+tensorflow 
+requests 
+pytz

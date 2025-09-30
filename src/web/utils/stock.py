@@ -4,14 +4,14 @@ import pytz
 from ..models import Stock
 from .. import db
 
-# TICKERS = ["AAPL", "MSFT", "AMZN", "GOOGL", "META", "NVDA", "TSLA"]
+
 TICKERS = ["AEP", "DUK", "SO", "ED", "EXC"]
 
 def fetch_and_update_stock(ticker):
     stock = yf.Ticker(ticker)
     info = stock.history(period="1d", interval="1m", auto_adjust=True)
     if len(info) >= 1:
-        close = info["Close"].iloc[-1]
+        close = float(info["Close"].iloc[-1]) 
         prev_close = stock.info.get("previousClose", None)
         if prev_close:
             change_pct = ((close - prev_close) / prev_close) * 100
@@ -24,7 +24,7 @@ def fetch_and_update_stock(ticker):
         hue = 120 if change_pct >= 0 else 0
         bg_color = f"hsl({hue}, 80%, {lightness}%)"
         print(f"[{ticker}] Price={close:.2f}, Change={change_pct:.2f}%")
-        return round(close,2), round(change_pct,2), cap, bg_color
+        return float(round(close, 2)), float(round(change_pct, 2)), int(cap) if cap else None, bg_color
     return None, None, None, None
 
 
@@ -45,12 +45,19 @@ def update_stock_data(app, force=False):
             if price is not None:
                 s = Stock.query.filter_by(symbol=t).first()
                 if not s:
-                    s = Stock(symbol=t, price=price, change=change, marketCap=cap, bg_color=bg_color, last_updated=now_utc)
+                    s = Stock(
+                                symbol=t,
+                                price=float(price),
+                                change=float(change),
+                                marketCap=int(cap),
+                                bg_color=bg_color,
+                                last_updated=now_utc
+                            )
                     db.session.add(s)
                 else:
-                    s.price = price
-                    s.change = change
-                    s.marketCap = cap
+                    s.price = float(price)
+                    s.change = float(change)
+                    s.marketCap = int(cap) if cap else None
                     s.bg_color = bg_color
                     s.last_updated = now_utc
         db.session.commit()
