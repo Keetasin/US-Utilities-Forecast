@@ -142,7 +142,7 @@ def downsample_forecast_series(fc: pd.Series, steps: int) -> pd.Series:
     if fc is None or fc.empty:
         return fc
     if steps == 180:   # 6 เดือน → 6 จุด
-        return fc.resample("M").last().iloc[:6]
+        return fc.resample("ME").last().iloc[:6]
     elif steps == 365: # 1 ปี → 12 จุด
         return fc.resample("ME").last().iloc[:12]
     return fc
