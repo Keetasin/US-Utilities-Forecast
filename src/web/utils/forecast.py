@@ -18,29 +18,29 @@ from datetime import datetime, timedelta
 # ==========================
 MODEL_PARAMS = {
     "AEP": {
-        "arima":   {"order": (2,1,2)},
-        "sarima":  {"order": (1,1,1), "seasonal_order": (0,1,1,20)},
-        "sarimax": {"order": (2,1,1), "seasonal_order": (1,0,1,20)}
+        "arima":   {"order": (1, 1, 0)},
+        "sarima":  {"order": (0, 1, 0), "seasonal_order": (1, 1, 0, 20)},
+        "sarimax": {"order": (2, 0, 2), "seasonal_order": (0, 0, 1, 20)}
     },
     "DUK": {
-        "arima":   {"order": (1,1,1)},
-        "sarima":  {"order": (2,1,0), "seasonal_order": (0,1,1,20)},
-        "sarimax": {"order": (1,1,2), "seasonal_order": (1,0,1,20)}
+        "arima":   {"order": (1, 1, 1)},
+        "sarima":  {"order": (2, 1, 2), "seasonal_order": (1, 1, 1, 63)},
+        "sarimax": {"order": (0, 1, 2), "seasonal_order": (1, 1, 1, 63)}
     },
     "SO": {
-        "arima":   {"order": (0,1,2)},
-        "sarima":  {"order": (1,1,1), "seasonal_order": (1,1,0,20)},
-        "sarimax": {"order": (2,1,2), "seasonal_order": (0,0,1,20)}
+        "arima":   {"order": (0, 1, 1)},
+        "sarima":  {"order": (1, 0, 0), "seasonal_order": (1, 1, 0, 20)},
+        "sarimax": {"order": (0, 1, 2), "seasonal_order": (1, 0, 1, 20)}
     },
     "ED": {
-        "arima":   {"order": (2,1,0)},
-        "sarima":  {"order": (1,1,2), "seasonal_order": (0,1,1,20)},
-        "sarimax": {"order": (1,1,1), "seasonal_order": (1,0,0,20)}
+        "arima":   {"order": (2, 1, 2)},
+        "sarima":  {"order": (2, 0, 2), "seasonal_order": (1, 1, 0, 63)},
+        "sarimax": {"order": (2, 1, 1), "seasonal_order": (1, 1, 1, 63)}
     },
     "EXC": {
-        "arima":   {"order": (1,1,2)},
-        "sarima":  {"order": (0,1,1), "seasonal_order": (1,1,1,20)},
-        "sarimax": {"order": (2,1,1), "seasonal_order": (0,0,1,20)}
+        "arima":   {"order": (2, 1, 2)},
+        "sarima":  {"order": (1, 1, 1), "seasonal_order": (1, 1, 0, 20)},
+        "sarimax": {"order": (1, 0, 0), "seasonal_order": (0, 1, 1, 63)}
     }
 }
 
