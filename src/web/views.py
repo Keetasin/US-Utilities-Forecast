@@ -67,8 +67,6 @@ def news(symbol):
         summary = "No news yet. Will update at 20:00."
     return render_template("news.html", symbol=symbol, news=news_list[:5], summary=summary)
 
-
-
 # ---------------------------
 # Stock Analytics
 # ---------------------------
@@ -214,24 +212,14 @@ def dashboard():
         historical_dates=historical_dates
     )
 
-
-
-
-
-
-
-
-
-
-
 # ---------------------------
-# Helper: downsample historical
+# Helper: downsample
 # ---------------------------
 def downsample_historical(data, steps):
-    """ลด historical resolution ให้สอดคล้องกับ horizon"""
+    """ลด resolution ให้สอดคล้องกับ horizon"""
     if not data or not isinstance(data, list):
         return data
-    if steps <= 7:   # ❗ ไม่แตะ 1 week
+    if steps <= 7:
         return data
 
     df = pd.DataFrame(data)
@@ -241,9 +229,9 @@ def downsample_historical(data, steps):
     df["date"] = pd.to_datetime(df["date"])
     df.set_index("date", inplace=True)
 
-    if steps == 180:   # 6 เดือน → weekly
+    if steps == 180:
         df = df.resample("W").last()
-    elif steps == 365: # 1 ปี → monthly
+    elif steps == 365:
         df = df.resample("ME").last()
     else:
         return data
@@ -264,18 +252,16 @@ def forecasting(symbol, model):
         update_forecast(current_app, [symbol], models=[model], steps_list=[steps])
         fc = StockForecast.query.filter_by(symbol=symbol, model=model, steps=steps).first()
         if not fc:
-            return render_template(
-                "forecasting.html",
-                has_data=False,
-                symbol=symbol,
-                model=model.lower(),
-                error="No forecast yet. Try again later.",
-                steps=steps
-            )
+            return render_template("forecasting.html", has_data=False, symbol=symbol, model=model.lower(), error="No forecast yet.", steps=steps)
 
-    forecast_json = fc.forecast_json
+    # ✅ Downsample forecast/backtest for display
+    forecast_full = fc.forecast_json or []
+    forecast_json = downsample_historical(forecast_full, steps)
 
-    # Historical (from DB or fallback)
+    backtest_full = getattr(fc, "backtest_json", None) or []
+    backtest = downsample_historical(backtest_full, steps)
+
+    # Historical (ยังใช้ logic เดิม)
     historical = getattr(fc, "historical_json", None)
     if not historical:
         try:
@@ -290,22 +276,16 @@ def forecasting(symbol, model):
 
             full_close = yf.download(symbol, period=hist_period, progress=False, auto_adjust=True)['Close'].dropna()
             full_close = ensure_datetime_freq(full_close)
-
-            max_points = 300
-            if len(full_close) > max_points:
-                full_close = full_close.tail(max_points)
-
+            if len(full_close) > 300:
+                full_close = full_close.tail(300)
             historical = series_to_chart_pairs_safe(full_close)
             last_price_val = to_scalar(full_close.iloc[-1])
         except:
             historical = []
 
-    # ✅ Downsample historical
     historical = downsample_historical(historical, steps)
 
-    backtest = getattr(fc, "backtest_json", None) or []
     backtest_mae = getattr(fc, "backtest_mae", None)
-
     last_price_val = getattr(fc, "last_price", None) or (forecast_json[0]["price"] if forecast_json else 0.0)
     trend = {
         "direction": "Up" if forecast_json and forecast_json[-1]["price"] > last_price_val else "Down",
@@ -313,30 +293,12 @@ def forecasting(symbol, model):
     }
     backtest_mae_pct = (backtest_mae / last_price_val * 100.0) if last_price_val and backtest_mae else 0.0
 
-    return render_template(
-        "forecasting.html",
-        symbol=symbol,
-        model=model.upper(),
-        forecast=forecast_json,
-        historical=historical,
-        backtest=backtest,
-        backtest_mae=backtest_mae,
-        backtest_mae_pct=backtest_mae_pct,
-        last_price=round(last_price_val, 2),
-        trend=trend,
-        has_data=True,
-        steps=steps,
-        last_updated=fc.updated_at.strftime("%Y-%m-%d %H:%M")
-    )
-
-
-
-
-
-
-
-
-
+    return render_template("forecasting.html", symbol=symbol, model=model.upper(),
+                           forecast=forecast_json, historical=historical,
+                           backtest=backtest, backtest_mae=backtest_mae,
+                           backtest_mae_pct=backtest_mae_pct, last_price=round(last_price_val, 2),
+                           trend=trend, has_data=True, steps=steps,
+                           last_updated=fc.updated_at.strftime("%Y-%m-%d %H:%M"))
 
 # ---------------------------
 # Compare
@@ -347,7 +309,6 @@ def compare_models(symbol):
     results, historical, last_price = {}, [], None
     models = ["arima", "sarima", "sarimax", "lstm"]
 
-    # ตรวจสอบ forecast สำหรับ steps ปัจจุบัน
     for m in models:
         fc = StockForecast.query.filter_by(symbol=symbol, model=m, steps=steps).first()
         if not fc:
@@ -357,53 +318,44 @@ def compare_models(symbol):
             results[m] = {"ok": False, "error": f"No forecast for {m.upper()} ({steps}d)"}
             continue
 
-        # Forecast + Backtest
-        forecast_json = fc.forecast_json or []
-        backtest_json = getattr(fc, "backtest_json", []) or []
+        forecast_full = fc.forecast_json or []
+        forecast_json = downsample_historical(forecast_full, steps)
+
+        backtest_full = getattr(fc, "backtest_json", []) or []
+        backtest_json = downsample_historical(backtest_full, steps)
+
         backtest_mae = getattr(fc, "backtest_mae", 0)
 
         # Historical
         h = getattr(fc, "historical_json", None) or []
         if not h:
             try:
-                # กำหนด period สำหรับ historical ยาวกว่าที่ forecast ใช้
                 if steps == 7:
                     hist_period = "7d"
                 elif steps == 180:
-                    hist_period = "6mo"     # ขยายให้ยาวขึ้น
+                    hist_period = "6mo"
                 elif steps == 365:
-                    hist_period = "1y"     # ขยายให้ยาวขึ้น
+                    hist_period = "1y"
                 else:
                     hist_period = get_period_by_model(m, steps)
 
                 full_close = yf.download(symbol, period=hist_period, progress=False, auto_adjust=True)['Close'].dropna()
                 full_close = ensure_datetime_freq(full_close)
-
-                max_points = 300
-                if len(full_close) > max_points:
-                    full_close = full_close.tail(max_points)
-
+                if len(full_close) > 300:
+                    full_close = full_close.tail(300)
                 h = series_to_chart_pairs_safe(full_close)
             except:
                 h = []
 
-        # ✅ Downsample historical ให้ match กับ horizon (7 วัน = daily, 6 เดือน = weekly, 1 ปี = monthly)
         historical = downsample_historical(h, steps)
-
         last_price = round(to_scalar(full_close.iloc[-1]) if h else forecast_json[0]["price"], 2)
 
         backtest_mae_pct = (backtest_mae / last_price * 100.0) if last_price else 0.0
-        results[m] = {
-            "ok": True,
-            "forecast": forecast_json,
-            "historical": historical,
-            "backtest": backtest_json,
-            "backtest_mae": backtest_mae,
-            "backtest_mae_pct": backtest_mae_pct,
-            "forecast_last": round(forecast_json[-1]["price"], 2) if forecast_json else None
-        }
+        results[m] = {"ok": True, "forecast": forecast_json, "historical": historical,
+                      "backtest": backtest_json, "backtest_mae": backtest_mae,
+                      "backtest_mae_pct": backtest_mae_pct,
+                      "forecast_last": round(forecast_json[-1]["price"], 2) if forecast_json else None}
 
-    # หา best model
     best_model, best_mae = None, None
     for m in models:
         if results.get(m, {}).get("ok"):
@@ -411,13 +363,6 @@ def compare_models(symbol):
             if best_mae is None or mae < best_mae:
                 best_mae, best_model = mae, m.upper()
 
-    return render_template(
-        "compare.html",
-        symbol=symbol,
-        historical=historical,
-        last_price=last_price,
-        results=results,
-        best_model=best_model,
-        best_mae=best_mae,
-        steps=steps
-    )
+    return render_template("compare.html", symbol=symbol, historical=historical,
+                           last_price=last_price, results=results,
+                           best_model=best_model, best_mae=best_mae, steps=steps)

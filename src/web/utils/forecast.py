@@ -67,10 +67,20 @@ def get_exogenous(period="5y"):
             print(f"[Exog] Failed to fetch {tkr}: {e}")
     return exog_df
 
-def forecast_exog_series(exog_series: pd.Series, steps: int, order=(1,1,1)):
+def forecast_exog_series(exog_series: pd.Series, steps: int):
+    """Forecast exogenous variable with random walk from historical returns"""
     try:
-        model = ARIMA(exog_series, order=order).fit()
-        return model.forecast(steps=steps)
+        returns = exog_series.pct_change().dropna()
+        mu, sigma = returns.mean(), returns.std()
+        last_val = exog_series.iloc[-1]
+
+        future_vals = []
+        for _ in range(steps):
+            shock = np.random.normal(mu, sigma)
+            last_val *= (1 + shock)
+            future_vals.append(last_val)
+
+        return pd.Series(future_vals, index=to_bday_future_index(exog_series.index[-1], steps))
     except Exception as e:
         print(f"[Exog Forecast Error] {e}")
         last_val = exog_series.iloc[-1]
@@ -134,18 +144,6 @@ def choose_seasonal_m(steps: int) -> int:
     elif steps <= 180: return 20
     elif steps <= 365: return 63
     else: return 252
-
-# ==========================
-# Downsample forecast/backtest series
-# ==========================
-def downsample_forecast_series(fc: pd.Series, steps: int) -> pd.Series:
-    if fc is None or fc.empty:
-        return fc
-    if steps == 180:   # 6 เดือน → 6 จุด
-        return fc.resample("ME").last().iloc[:6]
-    elif steps == 365: # 1 ปี → 12 จุด
-        return fc.resample("ME").last().iloc[:12]
-    return fc
 
 # ==========================
 # LSTM (better version)
@@ -265,9 +263,7 @@ def backtest_last_n_days(series: pd.Series, model_name: str, steps=7, exog=None,
         raise ValueError("Unknown model")
 
     mae = mean_absolute_error(true_future.values, fc.values)
-    fc = pd.Series(fc.values, index=true_future.index)
-    fc = downsample_forecast_series(fc, steps)
-    return fc, mae
+    return pd.Series(fc.values, index=true_future.index), mae
 
 def future_forecast(series: pd.Series, model_name: str, steps=7, exog=None, symbol="GENERIC"):
     s = ensure_datetime_freq(series)
@@ -303,17 +299,14 @@ def future_forecast(series: pd.Series, model_name: str, steps=7, exog=None, symb
     elif model_name == "lstm":
         vals = lstm_forecast_better(s, exog=exog, steps=steps_b)
         fc = pd.Series(vals, index=to_bday_future_index(last_dt, steps_b))
-        fc = downsample_forecast_series(fc, steps)
         return fc
     else:
         raise ValueError("Unknown model")
 
-    fc = pd.Series(fc.values, index=to_bday_future_index(last_dt, steps_b))
-    fc = downsample_forecast_series(fc, steps)
-    return fc
+    return pd.Series(fc.values, index=to_bday_future_index(last_dt, steps_b))
 
 # ==========================
-# Update forecast (แก้ตามเงื่อนไข 19:30)
+# Update forecast
 # ==========================
 def update_forecast(app, tickers, models=["arima","sarima","sarimax","lstm"], steps_list=[7,180,365]):
     from pytz import timezone, UTC
@@ -321,7 +314,6 @@ def update_forecast(app, tickers, models=["arima","sarima","sarimax","lstm"], st
     tz_th = timezone("Asia/Bangkok")
     now_th = datetime.now(tz_th)
 
-    # cutoff = 19:30 วันนี้ หรือของเมื่อวานถ้ายังไม่ถึง
     today_19_30 = now_th.replace(hour=19, minute=30, second=0, microsecond=0)
     cutoff = today_19_30 if now_th >= today_19_30 else today_19_30 - timedelta(days=1)
 
@@ -354,13 +346,11 @@ def update_forecast(app, tickers, models=["arima","sarima","sarimax","lstm"], st
 
                         # --- backtest ---
                         back_fc, back_mae = backtest_last_n_days(data, model_name=m, steps=steps, exog=exog, symbol=symbol)
-                        back_fc = downsample_forecast_series(back_fc, steps)
-                        backtest_json = series_to_chart_pairs_safe(back_fc)
+                        backtest_json = series_to_chart_pairs_safe(back_fc)   # full series
 
                         # --- future forecast ---
                         fut_fc = future_forecast(data, model_name=m, steps=steps, exog=exog, symbol=symbol)
-                        fut_fc = downsample_forecast_series(fut_fc, steps)
-                        forecast_json = series_to_chart_pairs_safe(fut_fc)
+                        forecast_json = series_to_chart_pairs_safe(fut_fc)    # full series
 
                         last_price = to_scalar(data.iloc[-1])
 
