@@ -199,7 +199,7 @@ def merge_results(ti):
 # DAG
 # --------------------
 with DAG(
-    "forecast_pipeline_dag",
+    "forecast_stock_pipeline",
     default_args=default_args,
     description="Forecast DAG with ARIMA/SARIMA/SARIMAX/LSTM + Spark + Branch + XCom + Backtest + Horizons",
     schedule_interval="@daily",
@@ -212,7 +212,7 @@ with DAG(
 
     spark_transform = SparkSubmitOperator(
         task_id="spark_transform",
-        application="/opt/airflow/spark/applications/spark_jobs/forecast_timeseries.py",
+        application="/opt/airflow/spark/applications/spark_jobs/forecast-stock_timeseries.py",
         conn_id="spark_default",
         verbose=True,
         name="local-spark-job",
