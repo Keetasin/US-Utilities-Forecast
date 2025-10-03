@@ -5,7 +5,9 @@ from ..models import Stock
 from .. import db
 
 
-TICKERS = ["AEP", "DUK", "SO", "ED", "EXC"]
+# TICKERS = ["AEP", "DUK", "SO", "ED", "EXC"]
+TICKERS = ["AEP"]
+
 tz_ny = pytz.timezone("America/New_York")
 tz_th = pytz.timezone("Asia/Bangkok")
 

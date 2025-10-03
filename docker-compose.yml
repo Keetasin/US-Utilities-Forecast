@@ -1,156 +1,66 @@
-version: "3"
-services:
+x-airflow-common: &airflow-common
+  image: custom-airflow:latest   # ใช้ image เดียว
+  environment:
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__CORE__FERNET_KEY: ''
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    AIRFLOW__API__AUTH_BACKEND: 'airflow.api.auth.backend.basic_auth'
+  volumes:
+    - ./src/dags:/opt/airflow/dags
+    - ./logs:/opt/airflow/logs
+    - ./plugins:/opt/airflow/plugins
+    - ./src/spark:/opt/airflow/spark          # mount spark jobs
+    - ./src/script:/opt/airflow/script        # mount entrypoint.sh หรือ script อื่น
+    - ./instance:/opt/airflow/instance        # mount database.db ถ้าจะให้ airflow เข้าถึง
+  user: "${AIRFLOW_UID:-50000}:0"
 
-  airflow-webserver:
-    hostname: airflow
-    container_name: airflow
-    image: andrejunior/airflow-spark:latest
-    restart: always
-    networks:
-      - airflow
+services:
+  postgres:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres-db-volume:/var/lib/postgresql/data
+
+  airflow-init:
+    <<: *airflow-common
+    build: .
+    command: bash -c "airflow db init && airflow users create --username admin --password admin --firstname admin --lastname user --role Admin --email admin@example.com"
     depends_on:
       - postgres
-      - minio
-      - spark-master
-      - spark-worker
-    environment:   
-      - AIRFLOW__CORE__LOAD_EXAMPLES=False
-      - LOAD_EX=n
-      - EXECUTOR=Local    
-    volumes:
-      - airflow-data:/usr/local/airflow/data
-      - ./src/dags:/usr/local/airflow/dags
-      - ./src/spark-apps:/opt/spark-apps          # ✅ mount spark jobs ใหม่
-      - ./src/spark/assets:/usr/local/spark/assets     
-    ports:
-      - "8085:8080"
+
+  webserver:
+    <<: *airflow-common
     command: webserver
-    healthcheck:
-      test: ["CMD-SHELL", "[ -f /usr/local/airflow/airflow-webserver.pid ]"]
-      interval: 30s
-      timeout: 30s
-      retries: 3
-
-  postgres:
-    hostname: postgres
-    container_name: postgres
-    image: 'postgres:14-bullseye'
-    environment:
-      POSTGRES_USER: 'airflow'
-      POSTGRES_PASSWORD: 'airflow'
-      POSTGRES_DB: 'airflow'
-      PGDATA: /data/postgres
-    volumes:
-      - postgres:/data/postgres
     ports:
-      - "5432:5432"
-    networks:
-      - airflow
-    restart: on-failure
-    healthcheck:
-      test: ["CMD", "pg_isready"]
-      interval: 60s
-      timeout: 20s
-      retries: 3
-    deploy:
-      resources:
-        limits:
-          memory: 400MB
-
-  minio:
-    hostname: bucket 
-    container_name: bucket
-    image: 'bitnami/minio:latest'
-    environment:
-      MINIO_ROOT_USER: airflow
-      MINIO_ROOT_PASSWORD: airflow
-    ports:
-      - '9000:9000'
-      - '9001:9001'
-    volumes:
-      - minio_data:/data
-    networks:
-      - airflow
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://bucket:9000/minio/health/live"]
-      interval: 60s
-      timeout: 20s
-      retries: 3
-    deploy:
-      resources:
-        limits:
-          memory: 400MB
-
-  createbuckets:
-    image: minio/mc
-    networks:
-      - airflow
+      - "8080:8080"
     depends_on:
-      - minio
-    entrypoint: >
-      /bin/sh -c "
-      /usr/bin/mc config host add myminio http://bucket:9000 airflow airflow;
-      /usr/bin/mc rm -r --force myminio/airflow;
-      /usr/bin/mc mb myminio/airflow;
-      /usr/bin/mc policy download myminio/airflow;
-      exit 0;
-      "
+      - postgres
 
-  spark-master:        
-    image: bitnami/spark:3.2.1
-    user: root 
-    hostname: spark
-    container_name: spark
-    networks:
-      - airflow
-    environment:
-      - SPARK_MODE=master
-      - SPARK_RPC_AUTHENTICATION_ENABLED=no
-      - SPARK_RPC_ENCRYPTION_ENABLED=no
-      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
-      - SPARK_SSL_ENABLED=no
-    volumes:
-      - ./src/spark-apps:/opt/spark-apps          # ✅
-      - ./src/spark/assets:/usr/local/spark/assets 
-    ports:
-      - "8081:8080"
-      - "7077:7077"
-    deploy:
-      resources:
-        limits:
-          memory: 500MB
-
-  spark-worker:
-    image: bitnami/spark:3.2.1
-    user: root
-    hostname: spark-worker
-    container_name: spark-worker
-    networks:
-      - airflow
-    environment:
-      - SPARK_MODE=worker
-      - SPARK_MASTER_URL=spark://spark:7077
-      - SPARK_WORKER_MEMORY=1G
-      - SPARK_WORKER_CORES=1
-      - SPARK_RPC_AUTHENTICATION_ENABLED=no
-      - SPARK_RPC_ENCRYPTION_ENABLED=no
-      - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
-      - SPARK_SSL_ENABLED=no
-    volumes:
-      - ./src/spark-apps:/opt/spark-apps          # ✅
-      - ./src/spark/assets:/usr/local/spark/assets 
+  scheduler:
+    <<: *airflow-common
+    command: scheduler
     depends_on:
-      - spark-master
-    deploy:
-      resources:
-        limits:
-          memory: 1GB
+      - postgres
 
+  # 👇 เพิ่ม Flask web app
+  web:
+    build: .
+    command: python main.py
+    volumes:
+      - ./:/opt/airflow        # 👈 mount ทั้ง project root
+    working_dir: /opt/airflow
+    ports:
+      - "5000:5000"   # Flask app เปิดที่ localhost:5000
+    depends_on:
+      - postgres
+    environment:
+      FLASK_ENV: development
+
+# ✅ ประกาศ volume ตรงนี้
 volumes:
-  postgres:
-  airflow-data:
-  minio_data:
-
-networks:
-  airflow:
-    driver: bridge
+  postgres-db-volume:

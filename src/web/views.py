@@ -232,7 +232,7 @@ def downsample_historical(data, steps):
     if steps == 180:
         df = df.resample("W").last()
     elif steps == 365:
-        df = df.resample("ME").last()
+        df = df.resample("M").last()
     else:
         return data
 

@@ -308,7 +308,8 @@ def future_forecast(series: pd.Series, model_name: str, steps=7, exog=None, symb
 # ==========================
 # Update forecast
 # ==========================
-def update_forecast(app, tickers, models=["arima","sarima","sarimax","lstm"], steps_list=[7,180,365]):
+# def update_forecast(app, tickers, models=["arima","sarima","sarimax","lstm"], steps_list=[7,180,365]):
+def update_forecast(app, tickers, models=["arima"], steps_list=[7]):
     from pytz import timezone, UTC
 
     tz_th = timezone("Asia/Bangkok")
