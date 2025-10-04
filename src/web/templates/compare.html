@@ -44,9 +44,9 @@
     <thead>
       <tr>
         <th>Model</th>
-        <th>Backtest MAE ({{ steps }}d)</th>
-        <th>Backtest % Error</th>
-        <th>{{ steps }}-Day Forecast (last)</th>
+        <th>MAE</th>
+        <th>%Error</th>
+        <th>Forecast</th>
         <th>Status</th>
       </tr>
     </thead>
@@ -147,5 +147,6 @@
       plugins: { legend:{ labels:{ color:'#fff' } } }
     }
   });
+
 </script>
 {% endblock %}

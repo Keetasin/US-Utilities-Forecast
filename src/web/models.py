@@ -29,7 +29,7 @@ class StockForecast(db.Model):
     backtest_json = db.Column(db.JSON, nullable=True) 
     backtest_mae = db.Column(db.Float, nullable=True)  
     last_price = db.Column(db.Float, nullable=True)    
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     __table_args__ = (
         db.UniqueConstraint("symbol", "model", "steps", name="uq_symbol_model_steps"),  

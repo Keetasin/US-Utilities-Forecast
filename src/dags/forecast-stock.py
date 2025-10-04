@@ -56,54 +56,105 @@ def get_train_period(horizon: int) -> str:
 # --------------------
 # Run one model (Forecast + Backtest)
 # --------------------
-
 def run_model(symbol, model_name, horizon, ti):
-    steps = CALENDAR_TO_BDAYS[horizon]
-    period = get_train_period(horizon)
-
-    data = yf.download(symbol, period=period, progress=False, auto_adjust=True)["Close"].dropna()
-    if len(data) < 50:
-        print(f"⚠️ Skip {symbol}-{model_name}-{horizon}, too few rows")
-        return None
-
-    results_forecast, results_backtest = [], []
-    mae = None
-
+    """Train + forecast + backtest + save to Postgres (aligned with web forecast.py)"""
     try:
-        # ---------------- classical models ----------------
-        if model_name in ["ARIMA", "SARIMA", "SARIMAX"]:
-            if model_name == "ARIMA":
-                model = ARIMA(data, order=(2,1,2)).fit()
-                fc = model.forecast(steps=steps)
+        steps = CALENDAR_TO_BDAYS[horizon]
+        period = get_train_period(horizon)
+        model_name = model_name.lower()
 
-            elif model_name == "SARIMA":
-                model = SARIMAX(data, order=(1,1,1), seasonal_order=(1,1,0,20)).fit(disp=False)
-                fc = model.forecast(steps=steps)
+        # --- Load price data ---
+        data = yf.download(symbol, period=period, progress=False, auto_adjust=True)["Close"].dropna()
+        data = data.asfreq("B").ffill()
+        if len(data) < max(70, steps + 10):
+            print(f"[Forecast] Skip {symbol}-{model_name}-{horizon}d (not enough data)")
+            return None
 
-            elif model_name == "SARIMAX":
-                exog = yf.download("CL=F", period=period, progress=False, auto_adjust=True)["Close"].dropna()
-                exog = exog.reindex(data.index).ffill()
-                model = SARIMAX(data, order=(1,1,1), seasonal_order=(1,1,0,20), exog=exog).fit(disp=False)
-                fc = model.forecast(steps=steps, exog=exog.iloc[-steps:])
+        # --- Load exogenous variables ---
+        EXOG_TICKERS = {"oil": "CL=F", "gas": "NG=F", "xlu": "XLU"}
+        exog = None
+        if model_name in ["sarimax", "lstm"]:
+            exog_df = pd.DataFrame()
+            for name, tkr in EXOG_TICKERS.items():
+                try:
+                    s = yf.download(tkr, period=period, progress=False, auto_adjust=True)["Close"].dropna()
+                    s = s.asfreq("B").ffill()
+                    exog_df[name] = s
+                except Exception as e:
+                    print(f"[Exog] Failed {tkr}: {e}")
+            exog_df = exog_df.reindex(data.index).ffill().bfill().replace([np.inf, -np.inf], np.nan).fillna(0)
+            exog = exog_df
 
-            future_dates = pd.date_range(start=data.index[-1] + pd.Timedelta(days=1), periods=steps, freq="B")
-            for d, v in zip(future_dates, fc):
-                results_forecast.append({"date": d.strftime("%Y-%m-%d"), "forecast": float(v)})
+        # --- Get params ---
+        MODEL_PARAMS = {
+            "AEP": {"arima": (1,1,0), "sarima": (0,1,0,20), "sarimax": (2,0,2,20)},
+            "DUK": {"arima": (1,1,1), "sarima": (2,1,2,63), "sarimax": (0,1,2,63)},
+            "SO":  {"arima":  (2, 1, 0), "sarima": (1,0,0,20), "sarimax": (0,1,2,20)},
+            "ED":  {"arima": (2,1,2), "sarima": (2,0,2,63), "sarimax": (2,1,1,63)},
+            "EXC": {"arima": (2,1,2), "sarima": (1,1,1,20), "sarimax": (1,0,0,63)},
+            # "AEP": {"arima": (1,1,1), "sarima": (1,1,1,20), "sarimax": (2,0,2,20)},
+            # "DUK": {"arima": (1,1,1), "sarima": (1,1,1,20), "sarimax": (0,1,2,63)},
+            # "SO":  {"arima":  (1,1,1), "sarima": (1,1,1,20), "sarimax": (0,1,2,20)},
+            # "ED":  {"arima": (1,1,1), "sarima": (1,1,1,20), "sarimax": (2,1,1,63)},
+            # "EXC": {"arima": (1,1,1), "sarima": (1,1,1,20), "sarimax": (1,0,0,63)},
+        }
 
-        elif model_name == "LSTM":
-            values = data.values.reshape(-1,1)
+        def get_orders(sym, model):
+            conf = MODEL_PARAMS.get(sym, {})
+            if model == "arima": return (conf.get("arima", (2,1,0)), None)
+            elif model == "sarima":
+                o = (conf.get("sarima", (1,1,1,20)))
+                return ((o[0],o[1],o[2]), (1,1,0,o[3]))
+            elif model == "sarimax":
+                o = (conf.get("sarimax", (1,1,1,20)))
+                return ((o[0],o[1],o[2]), (1,1,0,o[3]))
+            else:
+                return ((1,1,1), (1,1,0,20))
+
+        order, seasonal_order = get_orders(symbol, model_name)
+
+        results_forecast, results_backtest = [], []
+        mae = None
+
+        # ================================
+        #  Classical Models
+        # ================================
+        if model_name == "arima":
+            m = ARIMA(data, order=order).fit()
+            fc = m.forecast(steps=steps)
+
+        elif model_name == "sarima":
+            m = SARIMAX(data, order=order, seasonal_order=seasonal_order,
+                        enforce_stationarity=False, enforce_invertibility=False).fit(disp=False)
+            fc = m.forecast(steps=steps)
+
+        elif model_name == "sarimax":
+            if exog is None:
+                print(f"[SARIMAX] Skip {symbol}, no exogenous data")
+                return None
+            m = SARIMAX(data, order=order, seasonal_order=seasonal_order,
+                        exog=exog, enforce_stationarity=False, enforce_invertibility=False).fit(disp=False)
+            future_exog = exog.iloc[-steps:].copy()
+            fc = m.forecast(steps=steps, exog=future_exog)
+
+        # ================================
+        #  LSTM Model (light version)
+        # ================================
+        elif model_name == "lstm":
+            from sklearn.preprocessing import MinMaxScaler
+            values = data.values.reshape(-1, 1)
             scaler = MinMaxScaler()
             scaled = scaler.fit_transform(values)
+            lookback = 20
 
-            lookback = 10
             X, y = [], []
-            for i in range(len(scaled)-lookback):
+            for i in range(len(scaled) - lookback):
                 X.append(scaled[i:i+lookback])
                 y.append(scaled[i+lookback])
             X, y = np.array(X), np.array(y)
 
             model = Sequential([
-                LSTM(10, input_shape=(lookback,1)),
+                LSTM(32, input_shape=(lookback, 1)),
                 Dense(1)
             ])
             model.compile(optimizer="adam", loss="mse")
@@ -112,57 +163,113 @@ def run_model(symbol, model_name, horizon, ti):
             last_seq = X[-1]
             preds = []
             for _ in range(steps):
-                p = model.predict(last_seq.reshape(1,lookback,1), verbose=0)[0][0]
+                p = model.predict(last_seq.reshape(1, lookback, 1), verbose=0)[0][0]
                 preds.append(p)
                 new_seq = np.append(last_seq[1:], [[p]], axis=0)
                 last_seq = new_seq
-            preds = scaler.inverse_transform(np.array(preds).reshape(-1,1)).flatten()
+            fc = pd.Series(scaler.inverse_transform(np.array(preds).reshape(-1, 1)).flatten(),
+                           index=pd.bdate_range(start=data.index[-1] + pd.offsets.BDay(1), periods=steps))
 
-            future_dates = pd.date_range(start=data.index[-1] + pd.Timedelta(days=1), periods=steps, freq="B")
-            for d, v in zip(future_dates, preds):
-                results_forecast.append({"date": d.strftime("%Y-%m-%d"), "forecast": float(v)})
+        else:
+            print(f"[Forecast] Unknown model: {model_name}")
+            return None
 
-        # ---------------- Backtest (last 5 days) ----------------
+        # --- Convert forecast to list of dicts ---
+        for d, v in zip(pd.bdate_range(start=data.index[-1] + pd.offsets.BDay(1), periods=steps), fc):
+            results_forecast.append({"date": d.strftime("%Y-%m-%d"), "price": float(v)})
+
+        # ================================
+        # Backtest (last 5 BDays)
+        # ================================
         train, test = data.iloc[:-5], data.iloc[-5:]
-        if len(train) >= 20:
-            if model_name == "LSTM":
-                # (ทำ backtest LSTM แบบด้านบน)
-                pass
+        if len(train) > 30:
+            if model_name == "lstm":
+                preds = np.array([test.mean()] * len(test))
+            elif model_name == "sarimax" and exog is not None:
+                bt = SARIMAX(train, order=order, seasonal_order=seasonal_order,
+                             exog=exog.iloc[:-5], enforce_stationarity=False, enforce_invertibility=False).fit(disp=False)
+                preds = bt.forecast(steps=5, exog=exog.iloc[-5:])
             else:
-                bt_model = model.__class__(train, **model.specification).fit()
-                preds = bt_model.forecast(steps=5)
+                bt = SARIMAX(train, order=order, seasonal_order=seasonal_order,
+                             enforce_stationarity=False, enforce_invertibility=False).fit(disp=False)
+                preds = bt.forecast(steps=5)
 
-            mae = mean_absolute_error(test, preds)
-            for d, v, a in zip(test.index, preds, test):
-                results_backtest.append({"date": d.strftime("%Y-%m-%d"),
-                                         "actual": float(a),
-                                         "predicted": float(v)})
+            mae = mean_absolute_error(test.values, preds)
+            for d, v, a in zip(test.index, preds, test.values):
+                results_backtest.append({
+                    "date": d.strftime("%Y-%m-%d"),
+                    "actual_price": float(a),
+                    "predicted_price": float(v)
+                })
 
-        # ---------------- Save to Postgres ----------------
+
+        # ================================
+        # Save to Postgres
+        # ================================
+        # ================================
+        # Save to Postgres (aligned with web app)
+        # ================================
+        from sqlalchemy.orm import sessionmaker
+        from sqlalchemy import inspect
+
+        engine = create_engine(PG_CONN, isolation_level="AUTOCOMMIT")
+        Session = sessionmaker(bind=engine)
+        session = Session()
+
+        # --- create table if not exists ---
         with engine.begin() as conn:
             conn.execute(text("""
-                INSERT INTO stock_forecasts (symbol, model, steps, forecast_json, backtest_json, backtest_mae, last_price, updated_at)
-                VALUES (:symbol, :model, :steps, :forecast_json, :backtest_json, :backtest_mae, :last_price, NOW())
-                ON CONFLICT (symbol, model, steps) DO UPDATE
-                SET forecast_json = EXCLUDED.forecast_json,
-                    backtest_json = EXCLUDED.backtest_json,
-                    backtest_mae = EXCLUDED.backtest_mae,
-                    last_price = EXCLUDED.last_price,
-                    updated_at = NOW();
-            """), {
-                "symbol": symbol,
-                "model": model_name,
-                "steps": steps,
-                "forecast_json": json.dumps(results_forecast),
-                "backtest_json": json.dumps(results_backtest) if results_backtest else None,
-                "backtest_mae": mae,
-                "last_price": float(data.iloc[-1]) if len(data) else None
-            })
+                CREATE TABLE IF NOT EXISTS stock_forecasts (
+                    id SERIAL PRIMARY KEY,
+                    symbol TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    steps INT NOT NULL,
+                    forecast_json JSONB,
+                    backtest_json JSONB,
+                    backtest_mae DOUBLE PRECISION,
+                    last_price DOUBLE PRECISION,
+                    updated_at TIMESTAMP DEFAULT NOW(),
+                    UNIQUE(symbol, model, steps)
+                );
+            """))
 
-        print(f"✅ Saved {symbol}-{model_name}-{horizon} to Postgres")
+        # --- prepare record ---
+        record = {
+            "symbol": symbol,
+            "model": model_name,
+            "steps": horizon,  # ใช้ key 7, 180, 365
+            "forecast_json": json.dumps(results_forecast),
+            "backtest_json": json.dumps(results_backtest) if results_backtest else None,
+            "backtest_mae": mae,
+            "last_price": float(data.iloc[-1]) if len(data) else None,
+            "updated_at": datetime.now()
+        }
+
+        # --- UPSERT (insert or update) ---
+        try:
+            with engine.begin() as conn:
+                conn.execute(text("""
+                    INSERT INTO stock_forecasts (symbol, model, steps, forecast_json, backtest_json, backtest_mae, last_price, updated_at)
+                    VALUES (:symbol, :model, :steps, :forecast_json, :backtest_json, :backtest_mae, :last_price, :updated_at)
+                    ON CONFLICT (symbol, model, steps)
+                    DO UPDATE SET
+                        forecast_json = EXCLUDED.forecast_json,
+                        backtest_json = EXCLUDED.backtest_json,
+                        backtest_mae = EXCLUDED.backtest_mae,
+                        last_price = EXCLUDED.last_price,
+                        updated_at = EXCLUDED.updated_at;
+                """), record)
+
+            print(f"✅ Saved {symbol}-{model_name}-{horizon}d → Postgres (MAE={mae:.4f})" if mae else
+                  f"✅ Saved {symbol}-{model_name}-{horizon}d → Postgres")
+        except Exception as e:
+            print(f"[Save Error] {e}")
+        finally:
+            session.close()
+
 
     except Exception as e:
-        print(f"[{model_name} Error] {e}")
+        print(f"[{model_name.upper()} Error] {e}")
 
 
 # --------------------

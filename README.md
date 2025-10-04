@@ -1,4 +1,4 @@
-# Forecasting "The Magnificent Seven" with Time Series Analysis
+# Forecasting "" with Time Series Analysis
 
 ## Editing this README
 

@@ -1,19 +1,23 @@
 x-airflow-common: &airflow-common
   image: custom-airflow:latest   # ใช้ image เดียว
   environment:
+    AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/src/dags
+    PYTHONPATH: /opt/airflow/src
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
     AIRFLOW__CORE__FERNET_KEY: ''
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
     AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
     AIRFLOW__API__AUTH_BACKEND: 'airflow.api.auth.backend.basic_auth'
+
   volumes:
-    - ./src/dags:/opt/airflow/dags
+    - ./:/opt/airflow            
+    # - ./src/dags:/opt/airflow/dags
     - ./logs:/opt/airflow/logs
     - ./plugins:/opt/airflow/plugins
     - ./src/spark:/opt/airflow/spark          # mount spark jobs
-    - ./src/script:/opt/airflow/script        # mount entrypoint.sh หรือ script อื่น
-    - ./instance:/opt/airflow/instance        # mount database.db ถ้าจะให้ airflow เข้าถึง
+    # - ./src/script:/opt/airflow/script        # mount entrypoint.sh หรือ script อื่น
+    # - ./instance:/opt/airflow/instance        # mount database.db ถ้าจะให้ airflow เข้าถึง
   user: "${AIRFLOW_UID:-50000}:0"
 
 services:
@@ -25,6 +29,8 @@ services:
       POSTGRES_DB: airflow
     volumes:
       - postgres-db-volume:/var/lib/postgresql/data
+    ports:
+    - "5432:5432"
 
   airflow-init:
     <<: *airflow-common
