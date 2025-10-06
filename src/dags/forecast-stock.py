@@ -17,6 +17,8 @@ from sklearn.preprocessing import MinMaxScaler
 import os
 from sqlalchemy import create_engine, text
 import json
+import pendulum  # ✅ ใช้สำหรับตั้ง timezone
+
 
 
 # --------------------
@@ -31,8 +33,8 @@ engine = create_engine(PG_CONN)
 TICKERS = ["AEP"]
 MODELS = ["ARIMA", "SARIMA", "SARIMAX", "LSTM"]
 CALENDAR_TO_BDAYS = {7: 5, 180: 126, 365: 252}
-OUTPUT_DIR = "/opt/airflow/data/output"
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+# กำหนด timezone เป็น Asia/Bangkok
+tz_th = pendulum.timezone("Asia/Bangkok")
 
 default_args = {
     "owner": "airflow",
@@ -92,11 +94,6 @@ def run_model(symbol, model_name, horizon, ti):
             "SO":  {"arima":  (2, 1, 0), "sarima": (1,0,0,20), "sarimax": (0,1,2,20)},
             "ED":  {"arima": (2,1,2), "sarima": (2,0,2,63), "sarimax": (2,1,1,63)},
             "EXC": {"arima": (2,1,2), "sarima": (1,1,1,20), "sarimax": (1,0,0,63)},
-            # "AEP": {"arima": (1,1,1), "sarima": (1,1,1,20), "sarimax": (2,0,2,20)},
-            # "DUK": {"arima": (1,1,1), "sarima": (1,1,1,20), "sarimax": (0,1,2,63)},
-            # "SO":  {"arima":  (1,1,1), "sarima": (1,1,1,20), "sarimax": (0,1,2,20)},
-            # "ED":  {"arima": (1,1,1), "sarima": (1,1,1,20), "sarimax": (2,1,1,63)},
-            # "EXC": {"arima": (1,1,1), "sarima": (1,1,1,20), "sarimax": (1,0,0,63)},
         }
 
         def get_orders(sym, model):
@@ -309,8 +306,8 @@ with DAG(
     "forecast_stock_pipeline",
     default_args=default_args,
     description="Forecast DAG with ARIMA/SARIMA/SARIMAX/LSTM + Spark + Branch + XCom + Backtest + Horizons",
-    schedule_interval="@daily",
-    start_date=datetime(2025,1,1),
+    schedule_interval="47 09 * * 1-5",   # ⏰ 
+    start_date=datetime(2025, 1, 1, tzinfo=tz_th),
     catchup=False,
     tags=["assignment","forecast"],
 ) as dag:
@@ -349,4 +346,5 @@ with DAG(
 
     end = DummyOperator(task_id="end")
 
+ 
     start >> spark_transform >> branch >> forecast_group >> merge >> end
