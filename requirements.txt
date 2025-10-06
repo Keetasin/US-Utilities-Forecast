@@ -1,63 +1,31 @@
-# -----------------------------
-# Web app
-# -----------------------------
-flask
-flask_sqlalchemy
-wtforms
-SQLAlchemy
-werkzeug
+# --- Web ---
+Flask
+Flask-SQLAlchemy
+Flask-Migrate
+WTForms
+Werkzeug
 tornado
+APScheduler
+requests
+pytz
+pendulum
 
-# -----------------------------
-# Scheduler / Task queue
-# -----------------------------
-apscheduler
-celery
-kombu
-
-# -----------------------------
-# Data & Forecasting
-# -----------------------------
+# --- Data / Forecasting ---
+pandas
+numpy
 yfinance
 statsmodels
 scikit-learn
+SQLAlchemy
+psycopg2-binary
+pyarrow
 
-# -----------------------------
-# Deep Learning
-# -----------------------------
-transformers
-tf-keras
-
-# -----------------------------
-# External API / LLM
-# -----------------------------
-# ollama
-
-# -----------------------------
-# Spark
-# -----------------------------
+# --- Spark (run local jobs via SparkSubmitOperator) ---
 pyspark==3.5.1
 
-
-psycopg2-binary
-
-
-pandas 
-numpy 
-tensorflow 
-requests 
-pytz
-flask-migrate
-
-
-
-
-apache-airflow==2.9.2
-apache-airflow-providers-apache-spark
-pandas
-yfinance
-statsmodels
-scikit-learn
-prophet==1.1.5
-matplotlib
+# --- Deep Learning (ใส่เฉพาะถ้าใช้จริง) ---
 tensorflow==2.17.0
+
+# --- Airflow providers (ถ้าเก็บไฟล์เดียว) ---
+apache-airflow-providers-apache-spark
+# (ออปชัน) apache-airflow-providers-postgres
