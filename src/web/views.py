@@ -2,7 +2,7 @@ from flask import Blueprint, render_template, request, current_app
 from . import db
 from .models import Stock, StockNews, StockForecast
 from .utils.stock import TICKERS, fetch_and_update_stock, update_stock_data
-from .utils.news import fetch_news, summarize_news_for_investor
+from .utils.news import fetch_news #, summarize_news_for_investor
 from .utils.forecast import (ensure_datetime_freq, series_to_chart_pairs_safe,
                              get_period_by_model, backtest_last_n_days,
                              future_forecast, to_scalar, update_forecast)
@@ -61,11 +61,11 @@ def news(symbol):
     sn = StockNews.query.filter_by(symbol=symbol).first()
     if sn:
         news_list = sn.news_json
-        summary = sn.summary
+        # summary = sn.summary
     else:
         news_list = []
-        summary = "No news yet. Will update at 20:00."
-    return render_template("news.html", symbol=symbol, news=news_list[:5], summary=summary)
+        # summary = "No news yet. Will update at 20:00."
+    return render_template("news.html", symbol=symbol, news=news_list[:5]) # , summary=summary)
 
 # ---------------------------
 # Stock Analytics
