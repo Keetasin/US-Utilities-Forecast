@@ -9,7 +9,6 @@ from datetime import datetime, timedelta
 import os, json
 import pandas as pd
 import numpy as np
-import yfinance as yf
 from statsmodels.tsa.arima.model import ARIMA
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 from sklearn.metrics import mean_absolute_error
@@ -20,17 +19,16 @@ from sqlalchemy import create_engine, text
 import pendulum
 import pyarrow.parquet as pq
 
-# --------------------
-# Config
-# --------------------
+# ==========================================================
+# CONFIG
+# ==========================================================
 PG_CONN = "postgresql+psycopg2://airflow:airflow@postgres/airflow"
 engine = create_engine(PG_CONN)
+
 TICKERS = ["AEP"]
-# TICKERS = ["AEP", "DUK", "SO", "ED", "EXC"]
 MODELS = ["ARIMA", "SARIMA", "SARIMAX", "LSTM"]
 CALENDAR_TO_BDAYS = {7: 5, 180: 126, 365: 252}
 tz_th = pendulum.timezone("Asia/Bangkok")
-
 PARQUET_PATH = "/opt/airflow/data/spark_out/market.parquet"
 
 default_args = {
@@ -40,30 +38,30 @@ default_args = {
     "retry_delay": timedelta(minutes=5),
 }
 
-# --------------------
-# Core: run model
-# --------------------
+# ==========================================================
+# CORE FUNCTION: RUN MODEL
+# ==========================================================
 def run_model(symbol, model_name, horizon, ti):
     try:
         steps = CALENDAR_TO_BDAYS[horizon]
         model_name = model_name.lower()
+        print(f"🔹 Running {symbol}-{model_name}-{horizon}d | steps={steps}")
 
-        # === Load parquet data ===
+        # === Load parquet ===
         pdf = pq.read_table(PARQUET_PATH).to_pandas()
         pdf.columns = [c.lower() for c in pdf.columns]
         df = pdf[pdf["symbol"].str.lower() == symbol.lower()]
         if df.empty:
-            raise ValueError(f"No data for {symbol}")
+            raise ValueError(f"No data found for {symbol}")
 
         df["date"] = pd.to_datetime(df["date"])
-        df = df.sort_values("date").set_index("date").asfreq("B").ffill()
+        df = df.sort_values("date").set_index("date").asfreq("B").ffill().bfill()
+        df = df.replace([np.inf, -np.inf], np.nan).fillna(0)
+
         data = df["close"].astype(float)
-
-        # === Extract exogenous columns (oil, gas, xlu) ===
         exog_cols = [c for c in df.columns if any(x in c for x in ["cl", "ng", "xlu"])]
-        exog = df[exog_cols].asfreq("B").ffill() if exog_cols else None
+        exog = df[exog_cols].asfreq("B").ffill().bfill() if exog_cols else None
 
-        # === Skip if not enough data ===
         if len(data) < max(70, steps + 10):
             print(f"[Skip] {symbol}-{model_name}-{horizon}d (not enough data)")
             return {"symbol": symbol, "model": model_name, "horizon": horizon, "status": "skipped"}
@@ -92,16 +90,14 @@ def run_model(symbol, model_name, horizon, ti):
 
         order, seasonal_order = get_orders(symbol, model_name)
 
-        # === Train + Forecast ===
+        # === TRAIN + FORECAST ===
         if model_name == "arima":
             m = ARIMA(data, order=order).fit()
             fc = m.forecast(steps=steps)
-
         elif model_name == "sarima":
             m = SARIMAX(data, order=order, seasonal_order=seasonal_order,
                         enforce_stationarity=False, enforce_invertibility=False).fit(disp=False)
             fc = m.forecast(steps=steps)
-
         elif model_name == "sarimax":
             if exog is None or exog.empty:
                 exog = pd.DataFrame(0, index=data.index, columns=["dummy"])
@@ -109,7 +105,6 @@ def run_model(symbol, model_name, horizon, ti):
                         exog=exog, enforce_stationarity=False, enforce_invertibility=False).fit(disp=False)
             future_exog = exog.iloc[-steps:].copy()
             fc = m.forecast(steps=steps, exog=future_exog)
-
         elif model_name == "lstm":
             values = data.values.reshape(-1, 1)
             scaler = MinMaxScaler()
@@ -122,7 +117,7 @@ def run_model(symbol, model_name, horizon, ti):
             X, y = np.array(X), np.array(y)
             model = Sequential([LSTM(32, input_shape=(lookback, 1)), Dense(1)])
             model.compile(optimizer="adam", loss="mse")
-            model.fit(X, y, epochs=1, verbose=0)
+            model.fit(X, y, epochs=3, verbose=0)
             last_seq = X[-1]
             preds = []
             for _ in range(steps):
@@ -136,24 +131,28 @@ def run_model(symbol, model_name, horizon, ti):
         else:
             raise ValueError(f"Unknown model {model_name}")
 
-        # === Backtest (5 days) ===
-        results_backtest, mae = [], None
-        train, test = data.iloc[:-5], data.iloc[-5:]
+        # === BACKTEST (แบบเดียวกับ Flask — ใช้ {date, price}) ===
+        back_days = min(steps, len(data)//5)
+        train, test = data.iloc[:-back_days], data.iloc[-back_days:]
+        mae, results_backtest = None, []
+
         if len(train) > 30:
             bt = SARIMAX(train, order=order, seasonal_order=seasonal_order,
                          enforce_stationarity=False, enforce_invertibility=False).fit(disp=False)
-            preds = bt.forecast(steps=5)
+            preds = bt.forecast(steps=back_days)
             mae = mean_absolute_error(test.values, preds)
-            for d, v, a in zip(test.index, preds, test.values):
+            for d, v in zip(test.index, preds):
                 results_backtest.append({
                     "date": d.strftime("%Y-%m-%d"),
-                    "actual_price": float(a),
-                    "predicted_price": float(v)
+                    "price": float(v)
                 })
 
-        # === Save to Postgres ===
-        results_forecast = [{"date": d.strftime("%Y-%m-%d"), "price": float(v)} for d, v in zip(pd.bdate_range(start=data.index[-1] + pd.offsets.BDay(1), periods=steps), fc)]
+        # === FORECAST JSON ===
+        forecast_index = pd.bdate_range(start=data.index[-1] + pd.offsets.BDay(1), periods=steps)
+        results_forecast = [{"date": d.strftime("%Y-%m-%d"), "price": float(v)} for d, v in zip(forecast_index, fc)]
 
+        # === SAVE TO DB ===
+        last_price = float(data.iloc[-1])
         with engine.begin() as conn:
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS stock_forecasts (
@@ -164,28 +163,32 @@ def run_model(symbol, model_name, horizon, ti):
                     forecast_json JSONB,
                     backtest_json JSONB,
                     backtest_mae DOUBLE PRECISION,
+                    last_price DOUBLE PRECISION,
                     updated_at TIMESTAMP DEFAULT NOW(),
                     UNIQUE(symbol, model, steps)
                 );
             """))
             conn.execute(text("""
-                INSERT INTO stock_forecasts (symbol, model, steps, forecast_json, backtest_json, backtest_mae, updated_at)
-                VALUES (:symbol, :model, :steps, :forecast_json, :backtest_json, :mae, NOW())
+                INSERT INTO stock_forecasts (symbol, model, steps, forecast_json, backtest_json, backtest_mae, last_price, updated_at)
+                VALUES (:symbol, :model, :steps, :forecast_json, :backtest_json, :mae, :last_price, NOW())
                 ON CONFLICT (symbol, model, steps)
-                DO UPDATE SET forecast_json=EXCLUDED.forecast_json,
-                              backtest_json=EXCLUDED.backtest_json,
-                              backtest_mae=EXCLUDED.backtest_mae,
-                              updated_at=NOW();
+                DO UPDATE SET
+                    forecast_json = EXCLUDED.forecast_json,
+                    backtest_json = EXCLUDED.backtest_json,
+                    backtest_mae = EXCLUDED.backtest_mae,
+                    last_price = EXCLUDED.last_price,
+                    updated_at = NOW();
             """), {
                 "symbol": symbol,
                 "model": model_name,
                 "steps": horizon,
                 "forecast_json": json.dumps(results_forecast),
-                "backtest_json": json.dumps(results_backtest) if results_backtest else None,
+                "backtest_json": json.dumps(results_backtest),
                 "mae": mae,
+                "last_price": last_price
             })
 
-        print(f"✅ Updated DB: {symbol}-{model_name}-{horizon}d (MAE={mae})")
+        print(f"✅ Updated DB: {symbol}-{model_name}-{horizon}d | MAE={mae}")
         return {"symbol": symbol, "model": model_name, "horizon": horizon, "status": "ok"}
 
     except Exception as e:
@@ -193,26 +196,20 @@ def run_model(symbol, model_name, horizon, ti):
         return {"symbol": symbol, "model": model_name, "horizon": horizon, "status": "error"}
 
 
-# --------------------
-# Simple XCom + DAG setup
-# --------------------
+# ==========================================================
+# DAG SETUP
+# ==========================================================
 def read_latest(ti):
-    tbl = pq.read_table(PARQUET_PATH)
-    pdf = tbl.to_pandas()
+    pdf = pq.read_table(PARQUET_PATH).to_pandas()
     pdf.columns = [c.lower() for c in pdf.columns]
-    df = pdf[pdf["symbol"].str.lower() == TICKERS[0].lower()]
-    df = df.sort_values("date")
+    df = pdf[pdf["symbol"].str.lower() == TICKERS[0].lower()].sort_values("date")
     last_close = float(df.iloc[-1]["close"])
     ti.xcom_push(key="last_close", value=last_close)
     print(f"[read_latest] last_close={last_close}")
 
 
 def decide_branch(**ctx):
-    ti = ctx["ti"]
-    run_all = True
-    if run_all:
-        return [f"forecast_group.{s}_{m}_{h}" for s in TICKERS for m in MODELS for h in CALENDAR_TO_BDAYS.keys()]
-    return f"forecast_group.{TICKERS[0]}_ARIMA_7"
+    return [f"forecast_group.{s}_{m}_{h}" for s in TICKERS for m in MODELS for h in CALENDAR_TO_BDAYS.keys()]
 
 
 def merge_results(ti):
@@ -222,9 +219,9 @@ def merge_results(ti):
         print(f"📊 Total records: {total}, Last updated: {last}")
 
 
-# --------------------
-# DAG definition
-# --------------------
+# ==========================================================
+# DAG DEFINITION
+# ==========================================================
 with DAG(
     "forecast_stock_pipeline",
     default_args=default_args,
@@ -259,7 +256,11 @@ with DAG(
                         op_kwargs={"symbol": sym, "model_name": model, "horizon": h},
                     )
 
-    merge = PythonOperator(task_id="merge_results", python_callable=merge_results, trigger_rule=TriggerRule.NONE_FAILED_MIN_ONE_SUCCESS)
+    merge = PythonOperator(
+        task_id="merge_results",
+        python_callable=merge_results,
+        trigger_rule=TriggerRule.NONE_FAILED_MIN_ONE_SUCCESS,
+    )
     end = DummyOperator(task_id="end")
 
     start >> spark_transform >> read_latest_task >> branch >> forecast_group >> merge >> end
