@@ -226,7 +226,7 @@ with DAG(
     "forecast_stock_pipeline",
     default_args=default_args,
     description="Forecast DAG with ARIMA/SARIMA/SARIMAX/LSTM using Spark parquet + Postgres update",
-    schedule_interval=None,
+    schedule_interval="30 19 * * 1-5",
     start_date=datetime(2025, 1, 1, tzinfo=tz_th),
     catchup=False,
 ) as dag:
