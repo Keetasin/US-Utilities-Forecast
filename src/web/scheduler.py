@@ -99,44 +99,70 @@ def start_news_scheduler(app):
     print("News scheduler started ✅")
 
 
-# ---------------------------
-# Forecast Scheduler
-# ---------------------------
-forecast_scheduler = BackgroundScheduler()
+# # ---------------------------
+# # Forecast Scheduler
+# # ---------------------------
+# forecast_scheduler = BackgroundScheduler()
+
+# def start_forecast_scheduler(app):
+#     from .models import StockForecast
+#     with app.app_context():
+#         now_th = datetime.now(tz_th)
+#         today_19_30 = now_th.replace(hour=19, minute=30, second=0, microsecond=0)
+#         cutoff = today_19_30 if now_th >= today_19_30 else today_19_30 - timedelta(days=1)
+
+#         models = ["arima", "sarima", "sarimax", "lstm"]
+#         steps_list = [7, 180, 365]
+
+#         for t in TICKERS:
+#             for m in models:
+#                 for steps in steps_list:
+#                     fc = StockForecast.query.filter_by(symbol=t, model=m, steps=steps).first()
+#                     if not fc:
+#                         print(f"Forecast DB empty -> Update {t}-{m}-{steps}d")
+#                         update_forecast(app, [t], models=[m], steps_list=[steps])
+#                     else:
+#                         last_update_th = fc.updated_at.replace(tzinfo=pytz.UTC).astimezone(tz_th)
+#                         if last_update_th < cutoff:
+#                             print(f"Forecast outdated -> Update {t}-{m}-{steps}d")
+#                             update_forecast(app, [t], models=[m], steps_list=[steps])
+
+#     # Schedule daily
+#     forecast_scheduler.add_job(
+#         func=lambda: update_forecast(app, TICKERS, models=["arima", "sarima", "sarimax", "lstm"], steps_list=[7,180,365]),
+#         trigger="cron",
+#         day_of_week='mon-fri',
+#         hour=19,
+#         minute=30,
+#         timezone=tz_th,
+#         max_instances=1,         
+#         misfire_grace_time=300 
+#     )
+#     forecast_scheduler.start()
+#     print("Forecast scheduler started ✅")
+
+
 
 def start_forecast_scheduler(app):
+    """
+    ตรวจสอบว่า StockForecast DB ว่างหรือไม่
+    ถ้าว่าง → forecast ครั้งแรกและเก็บลง DB
+    """
     from .models import StockForecast
-    with app.app_context():
-        now_th = datetime.now(tz_th)
-        today_19_30 = now_th.replace(hour=19, minute=30, second=0, microsecond=0)
-        cutoff = today_19_30 if now_th >= today_19_30 else today_19_30 - timedelta(days=1)
 
+    with app.app_context():
         models = ["arima", "sarima", "sarimax", "lstm"]
         steps_list = [7, 180, 365]
 
         for t in TICKERS:
             for m in models:
                 for steps in steps_list:
+                    # ตรวจสอบว่ามี forecast ใน DB หรือไม่
                     fc = StockForecast.query.filter_by(symbol=t, model=m, steps=steps).first()
                     if not fc:
                         print(f"Forecast DB empty -> Update {t}-{m}-{steps}d")
+                        # เรียก update_forecast สำหรับสร้าง forecast ใหม่และเก็บลง DB
                         update_forecast(app, [t], models=[m], steps_list=[steps])
                     else:
-                        last_update_th = fc.updated_at.replace(tzinfo=pytz.UTC).astimezone(tz_th)
-                        if last_update_th < cutoff:
-                            print(f"Forecast outdated -> Update {t}-{m}-{steps}d")
-                            update_forecast(app, [t], models=[m], steps_list=[steps])
+                        print(f"Forecast already exists for {t}-{m}-{steps}d, skipping.")
 
-    # Schedule daily
-    forecast_scheduler.add_job(
-        func=lambda: update_forecast(app, TICKERS, models=["arima", "sarima", "sarimax", "lstm"], steps_list=[7,180,365]),
-        trigger="cron",
-        day_of_week='mon-fri',
-        hour=19,
-        minute=30,
-        timezone=tz_th,
-        max_instances=1,         
-        misfire_grace_time=300 
-    )
-    forecast_scheduler.start()
-    print("Forecast scheduler started ✅")
