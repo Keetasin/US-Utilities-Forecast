@@ -16,7 +16,6 @@ class StockNews(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     symbol = db.Column(db.String(10), nullable=False)
     news_json = db.Column(db.JSON, nullable=False)  
-    # summary = db.Column(db.Text, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 class StockForecast(db.Model):
