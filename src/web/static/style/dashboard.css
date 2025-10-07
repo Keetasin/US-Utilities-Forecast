@@ -1,34 +1,30 @@
-/* ===== Styles ===== */
 .title { color: #00e5ff; text-align: center; margin-bottom: 20px; }
 
-/* Filter */
 .filter-container { margin: 15px 0; color: #00e5ff; }
 #timeFilter { padding:10px 15px; font-size:1rem; border-radius:8px; border:1px solid #444; background-color:#111; color:#00e5ff; cursor:pointer; }
 #timeFilter:hover { border-color:#00e5ff; box-shadow:0 0 10px rgba(0,229,255,0.5); }
 
-/* Charts */
 .chart-section { display:flex; flex-wrap:wrap; gap:30px; justify-content:center; margin-bottom:50px; }
 .chart-box { 
     width:100%; 
     max-width:500px; 
     height:400px; 
     background-color:#111; 
-    border-radius:15px;     /* ขอบมน */
+    border-radius:15px;     
     padding:10px; 
     box-shadow:0 6px 20px rgba(0,229,255,0.3); 
-    overflow: hidden;       /* ซ่อนส่วนที่เกินขอบ */
+    overflow: hidden;       
 }
 .hist-long { 
     width:100%; 
     max-width:1200px; 
     height:400px; 
     margin:0 auto; 
-    border-radius:15px;     /* ขอบมน */
-    overflow: hidden;       /* ซ่อนส่วนที่เกินขอบ */
+    border-radius:15px;     
+    overflow: hidden;      
 }
 .chart-section.hist-section { flex-wrap:nowrap; justify-content:center; }
 
-/* Table */
 .table-container { width:95%; max-width:1200px; margin:0 auto 30px auto; overflow-x:auto; }
 table { 
     width:100%; 
@@ -46,6 +42,5 @@ th, td {
 }
 th { background-color:#203a43; }
 
-/* Responsive */
 @media (max-width:1200px){ .chart-box { height:450px; } }
 @media (max-width:768px){ #timeFilter { width:95%; } .chart-box { height:400px; } }
