@@ -3,6 +3,8 @@ from datetime import datetime
 from ..models import StockNews
 from .. import db
 from .stock import TICKERS
+from datetime import datetime, timedelta
+import pytz
 
 
 NEWS_API_KEY = "bfa14549cdc84faf88c40e947da98d4d"
@@ -51,8 +53,6 @@ def update_stock_news(app, symbols):
 
 def initialize_news(app):
     """Initialize news: fetch missing tickers OR update if last update before last cutoff (19:00 TH time)"""
-    from datetime import datetime, time, timedelta
-    import pytz
 
     tz_th = pytz.timezone("Asia/Bangkok")
     now_th = datetime.now(tz_th)
@@ -76,4 +76,3 @@ def initialize_news(app):
                     update_stock_news(app, [t])
                 else:
                     print(f"News for {t} already up-to-date.")
-

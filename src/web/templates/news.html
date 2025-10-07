@@ -7,28 +7,19 @@
 
 <h2 class="title">{{ symbol }} - News</h2>
 
-<a class="back-link" href="{{ url_for('views.heatmap') }}">Heatmap</a>
-<a class="back-link" href="{{ url_for('views.forecasting', symbol=symbol, model='arima') }}">Forecasting</a>
 <a class="back-link" href="{{ url_for('views.stock_detail', symbol=symbol) }}">Stock Detail</a>
+<a class="back-link" href="{{ url_for('views.stock_analytics', symbol=symbol) }}">Analytics</a>
+<a class="back-link" href="{{ url_for('views.forecasting', symbol=symbol, model='arima') }}">Forecasting</a>
 
-<!-- <div class="summary">
-    <h3>Investor Summary</h3>
-    <p>{{ summary }}</p>
-</div> -->
-
-<!-- <h3>Top Headlines</h3> -->
 <div class="news-list">
     {% for n in news %}
         <div class="news-item">
             <a href="{{ n.url }}" target="_blank" class="headline-link">
                 {{ n.text }}
             </a>
-            <p class="date">{{ n.published }}</p>
+            <p class="date">{{ n.published[:10] }}</p>
         </div>
     {% endfor %}
 </div>
-
-<!-- <p class="news-info">News & investor summaries are updated daily at 20:00 Bangkok Time.</p> -->
-
 
 {% endblock %}
