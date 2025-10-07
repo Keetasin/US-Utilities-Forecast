@@ -25,6 +25,10 @@ services:
       - postgres-db-volume:/var/lib/postgresql/data
     ports:
     - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow"]
+      interval: 5s
+      retries: 5
 
   airflow-init:
     <<: *airflow-common
@@ -32,6 +36,10 @@ services:
     command: bash -c "airflow db init && airflow users create --username admin --password admin --firstname admin --lastname user --role Admin --email admin@example.com"
     depends_on:
       - postgres
+    healthcheck:
+      test: ["CMD-SHELL", "airflow db check"]
+      interval: 5s
+      retries: 5
 
   webserver:
     <<: *airflow-common
@@ -39,7 +47,10 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_healthy
 
   scheduler:
     <<: *airflow-common
