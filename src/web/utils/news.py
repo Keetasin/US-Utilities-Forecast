@@ -17,7 +17,7 @@ TICKERS = {
 
 def fetch_news(ticker, api_key=NEWS_API_KEY):
     company_name = TICKERS[ticker]
-    query = f'"{ticker}" OR "{company_name}"'  
+    query = f'"{ticker}" AND "{company_name}"'  
     url = f"https://newsapi.org/v2/everything?q={query}&sortBy=publishedAt&language=en&apiKey={api_key}"
     
     try:
