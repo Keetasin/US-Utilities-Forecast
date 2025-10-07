@@ -8,11 +8,11 @@ The application can forecast stock prices over 1 week, 6 months, and 1 year, and
 ## Installation
 Ensure that you have Python 3.9+, Docker, and Docker Compose installed on your system before proceeding.
 
-1. Clone the repository:
+1. Clone the repository
    ```bash
    git clone https://github.com/Keetasin/US-Utilities-Forecast.git
    ```
-2. Navigate to the project directory:
+2. Navigate to the project directory
    ```bash
    cd US-Utilities-Forecast
    ```
