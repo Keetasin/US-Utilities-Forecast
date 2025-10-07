@@ -64,6 +64,9 @@ def news(symbol):
     return render_template("news.html", symbol=symbol, news=news_list[:5])
 
 
+
+
+
 # ---------------------------
 # Stock Analytics
 # ---------------------------
@@ -75,44 +78,53 @@ def stock_analytics(symbol):
 
     last_updated = stock.last_updated.strftime("%d/%m/%Y") if stock.last_updated else "N/A"
 
+    info = {}
+    hist_prices = {'Date': [], 'Close': [], 'MA50': [], 'MA200': []}
+    sp500_prices = []
+    financials = []
+
     try:
         stk_yf = yf.Ticker(symbol)
         info = stk_yf.info
 
-        dividends = stk_yf.dividends
-        dividend_years = dividends.resample('YE').sum()
-        dividend_years_dict = {d.strftime("%Y"): float(v) for d, v in dividend_years.items()}
+        # Historical price
+        hist = stk_yf.history(period="5y")
+        if not hist.empty:
+            hist_full = hist.copy()
+            hist_full['MA50'] = hist_full['Close'].rolling(50).mean()
+            hist_full['MA200'] = hist_full['Close'].rolling(200).mean()
+            hist_full = hist_full.reset_index()
+            hist_full['Date'] = hist_full['Date'].dt.strftime('%Y-%m-%d')
+            hist_prices = hist_full[['Date','Close','MA50','MA200']].to_dict(orient='list')
 
-        fin = stk_yf.financials
-        revenue = fin.loc["Total Revenue"].sort_index() if "Total Revenue" in fin.index else None
-        net_income = fin.loc["Net Income"].sort_index() if "Net Income" in fin.index else None
-        revenue_dict = {str(d): float(v) for d, v in revenue.items()} if revenue is not None else {}
-        net_income_dict = {str(d): float(v) for d, v in net_income.items()} if net_income is not None else {}
+            # S&P500
+            sp500_hist = yf.Ticker("^GSPC").history(period="5y")['Close'].reset_index()
+            sp500_hist['Date'] = sp500_hist['Date'].dt.strftime('%Y-%m-%d')
+            sp500_prices = sp500_hist['Close'].tolist()
 
-        hist_full = stk_yf.history(period="5y")
-        hist_full['MA50'] = hist_full['Close'].rolling(50).mean()
-        hist_full['MA200'] = hist_full['Close'].rolling(200).mean()
-        hist_full['Returns'] = hist_full['Close'].pct_change()
-        hist_full['Volatility'] = hist_full['Returns'].rolling(20).std() * 100
-
-        sp500 = yf.Ticker("^GSPC").history(period="5y")['Close']
-        relative_perf = (hist_full['Close'] / hist_full['Close'].iloc[0] * 100) - (sp500 / sp500.iloc[0] * 100)
+        # Financials: revenue & net income
+        if hasattr(stk_yf, 'financials') and not stk_yf.financials.empty:
+            fin = stk_yf.financials.T.reset_index()
+            fin.rename(columns={'index':'date','Total Revenue':'revenue','Net Income':'netIncome'}, inplace=True)
+            financials = fin[['date','revenue','netIncome']].to_dict(orient='records')
 
     except Exception as e:
         print("Error fetching yfinance:", e)
-        info = {}
-        dividend_years_dict, revenue_dict, net_income_dict = {}, {}, {}
-        hist_full, relative_perf = {}, {}
 
-    div_yield_raw = info.get("dividendYield", 0) or 0
-    div_yield = round(div_yield_raw*100,2) if div_yield_raw < 1 else round(div_yield_raw,2)
+    # Overview
+    div_yield_raw = info.get("dividendYield")
+    div_yield = round(div_yield_raw, 2) if div_yield_raw else 0
+    pe_raw = info.get("trailingPE")
+    pe = round(pe_raw, 2) if pe_raw else 0
+    beta_raw = info.get("beta")
+    beta = round(beta_raw, 2) if beta_raw else 0
 
     overview_data = [{
         "ticker": symbol,
         "price": round(info.get("currentPrice", stock.price), 2),
         "div_yield": div_yield,
-        "pe": round(info.get("trailingPE",0),2),
-        "beta": round(info.get("beta",0),2),
+        "pe": pe,
+        "beta": beta,
         "market_cap": info.get("marketCap", stock.marketCap),
     }]
 
@@ -121,12 +133,15 @@ def stock_analytics(symbol):
         stock=stock,
         last_updated=last_updated,
         overview_data=overview_data,
-        dividend_years=dividend_years_dict,
-        net_income=net_income_dict,
-        revenue=revenue_dict,
-        hist_prices=hist_full.reset_index().to_dict(orient='list') if hist_full is not None else {},
-        relative_perf=relative_perf.reset_index().to_dict(orient='list') if relative_perf is not None else {}
+        hist_prices=hist_prices,
+        sp500_prices=sp500_prices,
+        financials=financials
     )
+
+
+
+
+
 
 
 # ---------------------------
@@ -155,7 +170,7 @@ def dashboard():
             info = {}
 
         dy_raw = info.get("dividendYield", 0) or 0
-        dy = round(dy_raw*100,2) if dy_raw < 1 else round(dy_raw,2)
+        dy = round(dy_raw,2) if dy_raw < 1 else round(dy_raw,2)
         dividend_yields.append(dy)
 
         pe_ratios.append(round(info.get("trailingPE", 0) or 0,2))
