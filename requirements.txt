@@ -20,12 +20,11 @@ SQLAlchemy
 psycopg2-binary
 pyarrow
 
-# --- Spark (run local jobs via SparkSubmitOperator) ---
+# --- Spark ---
 pyspark==3.5.1
 
-# --- Deep Learning (ใส่เฉพาะถ้าใช้จริง) ---
+# --- Deep Learning ---
 tensorflow==2.17.0
 
-# --- Airflow providers (ถ้าเก็บไฟล์เดียว) ---
+# --- Airflow providers ---
 apache-airflow-providers-apache-spark
-# (ออปชัน) apache-airflow-providers-postgres
