@@ -1,5 +1,3 @@
-/* ---------------------------- */
-/* Base & Dark Mode */
 body {
     margin: 0;
     padding: 0;
@@ -10,7 +8,6 @@ body {
     overflow-x: hidden;
 }
 
-/* Animated floating particles background */
 body::before {
     content: '';
     position: fixed;
@@ -25,7 +22,6 @@ body::before {
     to { background-position: 1000px 1000px; }
 }
 
-/* Title */
 .title {
     font-size: 32px;
     margin: 20px 0;
@@ -34,7 +30,6 @@ body::before {
     z-index: 1;
 }
 
-/* Stock Info Card */
 .stock-info {
     display: inline-block;
     padding: 15px 25px;
@@ -48,7 +43,6 @@ body::before {
     position: relative;
 }
 
-/* TradingView Widget Container */
 .tradingview-widget-container {
     margin: 0 auto 50px;
     width: 90%;
@@ -61,7 +55,6 @@ body::before {
     position: relative;
 }
 
-/* Link back to heatmap */
 .back-link {
     display: inline-block;
     margin-bottom: 20px;
