@@ -5,43 +5,28 @@
 {% block content %}
 <link rel="stylesheet" href="{{ url_for('static', filename='style/home.css') }}">
 
-<!-- Header / Title -->
-<h2>Forecasting US Utilities Sector with Time Series Analysis</h2>
+<h2>US Utilities Sector Stock Forecasting</h2>
 
-<!-- Card Container -->
 <div class="card-container">
-    <!-- Key Insights Card -->
     <div class="card">
-        <h3>Why Utilities?</h3>
-            <ul>
-                <li><strong>รายได้มั่นคง:</strong> คาดการณ์ได้ แม้เศรษฐกิจถดถอย</li>
-                <li><strong>ปันผลสูง:</strong> จ่ายสม่ำเสมอ</li>
-                <li><strong>หุ้นนิ่ง:</strong> ความผันผวนต่ำ เหมาะระยะยาว</li>
-                <li><strong>กลุ่มสัมพันธ์สูง:</strong> เคลื่อนไหวพร้อมกัน ลดความเสี่ยง</li>
-            </ul>
-    </div>
-
-    <!-- Features / Charts Card -->
-    <div class="card">
-        <h3>Key Features</h3>
-        <ul>
-            <li>Heatmap: หุ้น Utilities 5 ตัว </li>
-            <li>Stock Detail: ข้อมูลราคาหุ้นล่าสุด</li>
-            <li>News: สรุปข่าวและ headline สำหรับนักลงทุน</li>
-            <li>Forecasting: ARIMA/SARIMA/LSTM</li>
-            <li>Compare Models: หา best model ตาม MAE</li>
-            <li>Dashboard:</li>
-        </ul>
-    </div>
-
-    <!-- References Card -->
-    <div class="card">
-        <h3>Developers</h3>
-        <ul>
-            <li>6610110214 Peeranat Pathomkul</li>
-            <li>6610110425 Keetasin Kongsee</li>
-            <li>6610110475 Natdanai Chookool</li>
-        </ul>
+        <h3>Description</h3>
+        <p>
+            This project is an all-in-one web application for stock analysis and forecasting.<br>
+            It features an interactive dashboard that allows users to view stock details,<br>
+            historical price trends, key financial indicators, and more in real time.<br>
+            The system supports multiple forecasting models, including ARIMA, SARIMA, SARIMAX,<br>
+            and LSTM, along with a backtesting feature that evaluates model accuracy<br>
+            using MAE (Mean Absolute Error) as the performance metric.
+        </p>
+        <p>
+            The application can forecast stock prices over 1 week, 6 months, and 1 year,<br>
+            and enables model comparison to identify the best-performing approach.<br>
+            It also provides the 5 latest relevant news articles.<br>
+            Integrated with Airflow, the system trains models and automatically updates data from Monday to Friday,<br>
+            storing all information in PostgreSQL.<br>
+            This platform empowers users to analyze trends, assess model accuracy,<br>
+            and make strategic, data-driven decisions effectively.
+        </p>
     </div>
 </div>
 {% endblock %}

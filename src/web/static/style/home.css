@@ -1,5 +1,3 @@
-/* ---------------------------- */
-/* Base & Dark Mode */
 body {
     margin: 0;
     padding: 0;
@@ -10,7 +8,6 @@ body {
     overflow-x: hidden;
 }
 
-/* Animated floating particles background */
 body::before {
     content: '';
     position: fixed;
@@ -25,18 +22,15 @@ body::before {
     to { background-position: 1000px 1000px; }
 }
 
-/* Title */
 h2 {
     font-size: 36px;
     margin-top: 20px;
     margin-bottom: 60px;
     color: #00e5ff;
-    text-shadow: 0 0 10px #00e5ff, 0 0 20px #00e5ff;
     position: relative;
     z-index: 1;
 }
 
-/* Main Card Container */
 .card-container {
     display: flex;
     flex-wrap: wrap;
@@ -46,23 +40,21 @@ h2 {
     position: relative;
 }
 
-/* Card */
-/* Card */
 .card {
     background: rgba(20, 20, 20, 0.85);
-    padding: 20px 25px; /* ลด padding */
+    padding: 20px 25px; 
     border-radius: 20px;
-    width: 450px;
-    height: auto;       /* แก้จาก 180px เป็น auto */
-    min-height: 180px;  /* ถ้าต้องการความสูงขั้นต่ำ */
+    width: 900px;
+    height: auto;      
+    min-height: 180px; 
     box-shadow: 0 0 15px rgba(0,255,255,0.4);
     transition: transform 0.3s, box-shadow 0.3s;
     cursor: pointer;
     color: #fff;
-    font-size: 16px;   /* ลด font-size นิดหน่อย */
+    font-size: 16px;  
     font-weight: 600;
-    overflow-wrap: break-word;  /* ให้ text ห่อบรรทัดอัตโนมัติ */
-    word-break: break-word;     /* รองรับคำยาว ๆ */
+    overflow-wrap: break-word;  
+    word-break: break-word;    
 }
 
 .card:hover {
@@ -70,14 +62,12 @@ h2 {
     box-shadow: 0 0 25px rgba(0,255,255,0.7);
 }
 
-/* Card Titles */
 .card h3 {
     font-size: 22px;
     margin-bottom: 10px;
     color: #00e5ff;
 }
 
-/* Card Description */
 .card p {
     font-size: 16px;
     color: #ccc;
@@ -85,9 +75,9 @@ h2 {
 }
 
 .card ul {
-    padding-left: 20px; /* ปรับระยะห่างจากขอบซ้ายของ card */
-    text-align: left;   /* ให้ข้อความใน li ชิดซ้าย */
-    list-style-type: disc; /* ใช้ bullet ปกติ */
-    margin: 10px 0 0 0; /* ลด margin บน-ล่าง */
-    color: #fff; /* ตัวหนังสือสีขาวชัด */
+    padding-left: 20px; 
+    text-align: left;  
+    list-style-type: disc; 
+    margin: 10px 0 0 0; 
+    color: #fff; 
 }
