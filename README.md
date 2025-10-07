@@ -6,10 +6,55 @@ This project is an all-in-one web application for stock analysis and forecasting
 The application can forecast stock prices over 1 week, 6 months, and 1 year, and enables model comparison to identify the best-performing approach. It also provides the 5 latest relevant news articles. Integrated with Airflow, the system trains models and automatically updates data from Monday to Friday, storing all information in PostgreSQL. This platform empowers users to analyze trends, assess model accuracy, and make strategic, data-driven decisions effectively.
 
 ## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+Ensure that you have Python 3.9+, Docker, and Docker Compose installed on your system before proceeding.
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/Keetasin/US-Utilities-Forecast.git
+   ```
+2. Navigate to the project directory:
+   ```bash
+   cd US-Utilities-Forecast
+   ```
+3. Build the Docker image
+   ```bash
+   docker build -t custom-airflow:latest .
+   ```
 
 ## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+1. Start all services
+   ```bash
+    docker-compose up -d
+   ```
+2. Access the Flask web application
+   ```
+   http://localhost:5000
+   ```
+3. Access the Airflow web UI 
+   ```
+   http://localhost:8080
+   ```
+   - **Username:** admin
+   - **Password:** admin 
+
+4. Access pgAdmin 4 (local application)
+   - Open pgAdmin 4 on your local machine.
+   - Create a new server with the following settings:
+     - **Name:** US-Utilities-DB (or any name you like)
+     - **Host name/address:** localhost
+     - **Port:** 5432
+     - **Username:** airflow
+     - **Password:** airflow
+   - Save and connect. 
+
+## Services
+| Service        | Description                                                    |
+| -------------- | -------------------------------------------------------------- |
+| `postgres`     | PostgreSQL database for Airflow metadata and application data. |
+| `airflow-init` | Initializes Airflow DB and creates an admin user.              |
+| `webserver`    | Airflow web UI accessible at `http://localhost:8080`.          |
+| `scheduler`    | Airflow scheduler that runs DAGs.                              |
+| `web`          | Flask web application accessible at `http://localhost:5000`.   |
 
 ## Authors 
 - 6610110214 Peeranat Pathomkul
@@ -18,3 +63,12 @@ Use examples liberally, and show the expected output if you can. It's helpful to
 
 ## Project status
 The project is currently in active development.
+
+
+
+
+
+
+
+
+
