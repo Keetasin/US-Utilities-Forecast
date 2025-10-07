@@ -1,5 +1,5 @@
 x-airflow-common: &airflow-common
-  image: custom-airflow:latest   # ใช้ image เดียว
+  image: custom-airflow:latest  
   environment:
     AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/src/dags
     PYTHONPATH: /opt/airflow/src
@@ -11,13 +11,7 @@ x-airflow-common: &airflow-common
     AIRFLOW__API__AUTH_BACKEND: 'airflow.api.auth.backend.basic_auth'
 
   volumes:
-    - ./:/opt/airflow            
-    # - ./src/dags:/opt/airflow/dags
-    - ./logs:/opt/airflow/logs
-    - ./plugins:/opt/airflow/plugins
-    - ./src/spark:/opt/airflow/spark          # mount spark jobs
-    # - ./src/script:/opt/airflow/script        # mount entrypoint.sh หรือ script อื่น
-    # - ./instance:/opt/airflow/instance        # mount database.db ถ้าจะให้ airflow เข้าถึง
+    - ./:/opt/airflow     
   user: "${AIRFLOW_UID:-50000}:0"
 
 services:
@@ -53,20 +47,18 @@ services:
     depends_on:
       - postgres
 
-  # 👇 เพิ่ม Flask web app
   web:
     build: .
     command: python main.py
     volumes:
-      - ./:/opt/airflow        # 👈 mount ทั้ง project root
+      - ./:/opt/airflow       
     working_dir: /opt/airflow
     ports:
-      - "5000:5000"   # Flask app เปิดที่ localhost:5000
+      - "5000:5000"   
     depends_on:
       - postgres
     environment:
       FLASK_ENV: development
 
-# ✅ ประกาศ volume ตรงนี้
 volumes:
   postgres-db-volume:

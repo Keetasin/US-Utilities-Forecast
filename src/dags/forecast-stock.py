@@ -29,7 +29,7 @@ TICKERS = ["AEP"]
 MODELS = ["ARIMA", "SARIMA", "SARIMAX", "LSTM"]
 CALENDAR_TO_BDAYS = {7: 5, 180: 126, 365: 252}
 tz_th = pendulum.timezone("Asia/Bangkok")
-PARQUET_PATH = "/opt/airflow/data/spark_out/market.parquet"
+PARQUET_PATH = "/opt/airflow/src/spark/data/spark_out/market.parquet"
 
 default_args = {
     "owner": "airflow",
@@ -235,7 +235,7 @@ with DAG(
 
     spark_transform = SparkSubmitOperator(
         task_id="spark_transform",
-        application="/opt/airflow/spark/applications/spark_jobs/pull_yf.py",
+        application="/opt/airflow/src/spark/applications/spark_jobs/pull_yf.py",
         conn_id="spark_default",
         name="pull-yfinance-to-parquet",
         verbose=True,

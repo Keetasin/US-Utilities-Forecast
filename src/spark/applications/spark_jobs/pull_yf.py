@@ -11,7 +11,7 @@ from pyspark.sql import SparkSession
 # -----------------------------
 # Config
 # -----------------------------
-OUTPUT_DIR = "/opt/airflow/data/spark_out"
+OUTPUT_DIR = "/opt/airflow/src/spark/data/spark_out"
 OUT_PATH = os.path.join(OUTPUT_DIR, "market.parquet")
 EXOG_OUT_PATH = os.path.join(OUTPUT_DIR, "exog.parquet")
 
