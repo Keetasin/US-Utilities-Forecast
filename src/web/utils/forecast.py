@@ -308,8 +308,7 @@ def future_forecast(series: pd.Series, model_name: str, steps=7, exog=None, symb
 # ==========================
 # Update forecast
 # ==========================
-# def update_forecast(app, tickers, models=["arima","sarima","sarimax","lstm"], steps_list=[7,180,365]):
-def update_forecast(app, tickers, models=["arima"], steps_list=[7]):
+def update_forecast(app, tickers, models=["arima","sarima","sarimax","lstm"], steps_list=[7,180,365]):
     from pytz import timezone, UTC
 
     tz_th = timezone("Asia/Bangkok")
@@ -330,7 +329,6 @@ def update_forecast(app, tickers, models=["arima"], steps_list=[7]):
                                 print(f"[Forecast] Skip {symbol}-{m}-{steps}d (already updated after cutoff {cutoff})")
                                 continue
 
-                        # --- โหลดข้อมูลใหม่ ---
                         period = get_period_by_model(m, steps)
                         data = yf.download(symbol, period=period, progress=False, auto_adjust=True)['Close'].dropna()
                         data = ensure_datetime_freq(data)
@@ -345,13 +343,11 @@ def update_forecast(app, tickers, models=["arima"], steps_list=[7]):
                             exog_all = exog_all.replace([np.inf, -np.inf], np.nan).fillna(0)
                             exog = exog_all
 
-                        # --- backtest ---
                         back_fc, back_mae = backtest_last_n_days(data, model_name=m, steps=steps, exog=exog, symbol=symbol)
-                        backtest_json = series_to_chart_pairs_safe(back_fc)   # full series
+                        backtest_json = series_to_chart_pairs_safe(back_fc)  
 
-                        # --- future forecast ---
                         fut_fc = future_forecast(data, model_name=m, steps=steps, exog=exog, symbol=symbol)
-                        forecast_json = series_to_chart_pairs_safe(fut_fc)    # full series
+                        forecast_json = series_to_chart_pairs_safe(fut_fc)   
 
                         last_price = to_scalar(data.iloc[-1])
 

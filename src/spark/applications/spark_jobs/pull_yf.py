@@ -1,5 +1,3 @@
-# src/spark/applications/spark_jobs/pull_yf.py
-
 import argparse
 import os
 from datetime import datetime
@@ -196,7 +194,6 @@ def main():
             )
             exog_wide = exog_wide.fillna(0).replace([np.inf, -np.inf], 0)
 
-    # รวม exog เข้ากับราคา (ซ้ายยาว)
     df_out = price_long.merge(exog_wide, on="date", how="left") if exog_wide is not None else price_long
     df_out = df_out.fillna(0).replace([np.inf, -np.inf], 0)
 
@@ -214,7 +211,7 @@ def main():
 
     print(f"[Output sample]\n{df_out.tail(10)}")
 
-    # ✅ เขียน market.parquet
+    # เขียน market.parquet
     sdf = spark.createDataFrame(df_out)
     (
         sdf.repartition(1)
@@ -223,7 +220,7 @@ def main():
     )
     print(f"✅ Wrote market parquet to: {OUT_PATH}")
 
-    # ✅ เขียน exog.parquet แยกไฟล์ (ถ้ามี)
+    # เขียน exog.parquet แยกไฟล์ (ถ้ามี)
     if exog_wide is not None:
         sdf_exog = spark.createDataFrame(exog_wide)
         (

@@ -1,19 +1,16 @@
 from flask import Blueprint, render_template, request, current_app
-from . import db
 from .models import Stock, StockNews, StockForecast
-from .utils.stock import TICKERS, fetch_and_update_stock, update_stock_data
-from .utils.news import fetch_news #, summarize_news_for_investor
 from .utils.forecast import (ensure_datetime_freq, series_to_chart_pairs_safe,
-                             get_period_by_model, backtest_last_n_days,
-                             future_forecast, to_scalar, update_forecast)
+                             get_period_by_model, to_scalar, update_forecast)
 
 import yfinance as yf
 import pytz
 import pandas as pd
-import numpy as np
 from datetime import datetime
 
+
 views = Blueprint('views', __name__)
+
 
 # ---------------------------
 # Home & Heatmap
@@ -50,8 +47,9 @@ def stock_detail(symbol):
     stock = Stock.query.filter_by(symbol=symbol).first()
     if not stock: 
         return "Stock not found", 404
-    market = MARKET_MAPPING.get(symbol, "NASDAQ")  # default NASDAQ
+    market = MARKET_MAPPING.get(symbol, "NASDAQ")  
     return render_template("stock_detail.html", stock=stock, market=market)
+
 
 # ---------------------------
 # News
@@ -61,11 +59,10 @@ def news(symbol):
     sn = StockNews.query.filter_by(symbol=symbol).first()
     if sn:
         news_list = sn.news_json
-        # summary = sn.summary
     else:
         news_list = []
-        # summary = "No news yet. Will update at 20:00."
-    return render_template("news.html", symbol=symbol, news=news_list[:5]) # , summary=summary)
+    return render_template("news.html", symbol=symbol, news=news_list[:5])
+
 
 # ---------------------------
 # Stock Analytics
@@ -130,6 +127,7 @@ def stock_analytics(symbol):
         hist_prices=hist_full.reset_index().to_dict(orient='list') if hist_full is not None else {},
         relative_perf=relative_perf.reset_index().to_dict(orient='list') if relative_perf is not None else {}
     )
+
 
 # ---------------------------
 # Dashboard
@@ -212,6 +210,7 @@ def dashboard():
         historical_dates=historical_dates
     )
 
+
 # ---------------------------
 # Helper: downsample
 # ---------------------------
@@ -238,6 +237,7 @@ def downsample_historical(data, steps):
 
     return [{"date": d.strftime("%Y-%m-%d"), "price": float(p)} for d, p in df["price"].items()]
 
+
 # ---------------------------
 # Forecasting
 # ---------------------------
@@ -254,14 +254,12 @@ def forecasting(symbol, model):
         if not fc:
             return render_template("forecasting.html", has_data=False, symbol=symbol, model=model.lower(), error="No forecast yet.", steps=steps)
 
-    # ✅ Downsample forecast/backtest for display
     forecast_full = fc.forecast_json or []
     forecast_json = downsample_historical(forecast_full, steps)
 
     backtest_full = getattr(fc, "backtest_json", None) or []
     backtest = downsample_historical(backtest_full, steps)
 
-    # Historical (ยังใช้ logic เดิม)
     historical = getattr(fc, "historical_json", None)
     if not historical:
         try:
@@ -299,6 +297,7 @@ def forecasting(symbol, model):
                            backtest_mae_pct=backtest_mae_pct, last_price=round(last_price_val, 2),
                            trend=trend, has_data=True, steps=steps,
                            last_updated=fc.updated_at.strftime("%Y-%m-%d %H:%M"))
+
 
 # ---------------------------
 # Compare

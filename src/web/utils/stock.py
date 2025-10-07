@@ -39,7 +39,6 @@ def update_stock_data(app, force=False):
     now_utc = datetime.utcnow().replace(tzinfo=timezone.utc)
     now_ny = now_utc.astimezone(tz_ny)
     
-    # เช็ควันทำการตลาด: 0=จันทร์ ... 4=ศุกร์
     is_weekday = now_ny.weekday() < 5
     in_market_hours = market_open <= now_ny.time() <= market_close
     

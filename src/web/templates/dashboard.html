@@ -133,7 +133,7 @@ function drawCharts(range='ytd') {
         type: 'heatmap',
         colorscale: 'Viridis',
         text: corrMatrix.map(r => r.map(v => v.toFixed(2))),
-        texttemplate: "%{text}",   // แสดงตัวเลขบน heatmap
+        texttemplate: "%{text}",   
         textfont: {color: 'white', size: 12},
     }], {
         title: 'Stock Price Correlation',
