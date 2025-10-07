@@ -4,3 +4,4 @@ airflow.db
 /logs/
 airflow-webserver.pid
 **/__pycache__/
+webserver_config.py
