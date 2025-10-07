@@ -2,7 +2,7 @@ import os
 
 def save_project_structure(root_dir, output_file, exclude_dirs=None):
     if exclude_dirs is None:
-        exclude_dirs = ["venv", "__pycache__", ".git", "notebooks", "logs", "plugins"]
+        exclude_dirs = ["__pycache__", ".git", "notebooks", "logs"]
 
     with open(output_file, "w", encoding="utf-8") as f:
         for current_dir, subdirs, files in os.walk(root_dir):
@@ -21,7 +21,7 @@ def save_project_structure(root_dir, output_file, exclude_dirs=None):
                 f.write(f"{prefix}{connector}{filename}\n")
 
 # ใช้งาน
-project_path = r"C:\Users\student\happy-stock\US-Utilities-Forecast"
+project_path = r""
 output_file = "project_structure.txt"
 save_project_structure(project_path, output_file)
 
