@@ -36,6 +36,11 @@ Ensure that you have Python 3.9+, Docker, and Docker Compose installed on your s
    ```
    - **Username:** admin
    - **Password:** admin 
+   - After logging in:
+        1. Go to **Admin > Connections**.
+        2. Find and edit the record **spark_default**.
+        3. Set **Host** to `local[*]`.
+        4. Click **Save**.
 
 4. Access pgAdmin 4 (local application)
    - Open pgAdmin 4 on your local machine.
