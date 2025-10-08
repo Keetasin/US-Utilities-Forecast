@@ -6,9 +6,7 @@ from .stock import TICKERS
 from datetime import datetime, timedelta
 import pytz
 
-
-# NEWS_API_KEY = "bfa14549cdc84faf88c40e947da98d4d"
-NEWS_API_KEY = "5979a06d2cb64b6291d2852f2c26855a"
+NEWS_API_KEY = "API_KEY" # Replace with your actual NewsAPI key
 
 TICKERS = {
     "AEP": "American Electric Power",
