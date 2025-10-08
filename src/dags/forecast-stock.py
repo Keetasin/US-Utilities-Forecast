@@ -574,14 +574,23 @@ def read_latest(ti):
     ti.xcom_push(key="last_close", value=last_close)
     print(f"[read_latest] last_close={last_close}")
 
-def decide_branch(**ctx):
-    return [f"forecast_group.{s}_{m}_{h}" for s in TICKERS for m in MODELS for h in CALENDAR_TO_BDAYS.keys()]
+# def decide_branch(**ctx):
+#     return [f"forecast_group.{s}_{m}_{h}" for s in TICKERS for m in MODELS for h in CALENDAR_TO_BDAYS.keys()]
 
-def merge_results(ti):
-    with engine.begin() as conn:
-        total = conn.execute(text("SELECT COUNT(*) FROM stock_forecasts")).scalar()
-        last = conn.execute(text("SELECT MAX(updated_at) FROM stock_forecasts")).scalar()
-        print(f"📊 Total records: {total}, Last updated: {last}")
+def decide_branch(**kwargs):
+    branch_ids = []
+    for sym in TICKERS:
+        for model in MODELS:
+            for h in CALENDAR_TO_BDAYS.keys():
+                branch_ids.append(f"forecast_group_{sym}.{sym}_{model}_{h}")
+    return branch_ids
+
+
+# def merge_results(ti):
+#     with engine.begin() as conn:
+#         total = conn.execute(text("SELECT COUNT(*) FROM stock_forecasts")).scalar()
+#         last = conn.execute(text("SELECT MAX(updated_at) FROM stock_forecasts")).scalar()
+#         print(f"📊 Total records: {total}, Last updated: {last}")
 
 with DAG(
     "forecast_stock_pipeline",
@@ -607,8 +616,9 @@ with DAG(
     read_latest_task = PythonOperator(task_id="read_latest", python_callable=read_latest)
     branch = BranchPythonOperator(task_id="branching", python_callable=decide_branch, provide_context=True)
 
-    with TaskGroup("forecast_group") as forecast_group:
-        for sym in TICKERS:
+    prev_group = branch
+    for sym in TICKERS:
+        with TaskGroup(group_id=f"forecast_group_{sym}") as forecast_group:
             for model in MODELS:
                 for h in CALENDAR_TO_BDAYS.keys():
                     PythonOperator(
@@ -617,12 +627,18 @@ with DAG(
                         op_kwargs={"symbol": sym, "model_name": model, "horizon": h},  
                     )
 
-    merge = PythonOperator(
-        task_id="merge_results",
-        python_callable=merge_results,
-        trigger_rule=TriggerRule.NONE_FAILED_MIN_ONE_SUCCESS,
-    )
+        prev_group >> forecast_group
+        prev_group = forecast_group
+
+    # merge = PythonOperator(
+    #     task_id="merge_results",
+    #     python_callable=merge_results,
+    #     trigger_rule=TriggerRule.NONE_FAILED_MIN_ONE_SUCCESS,
+    # )
 
     end = DummyOperator(task_id="end")
 
-    start >> spark_transform >> read_latest_task >> branch >> forecast_group >> merge >> end
+
+    start >> spark_transform >> read_latest_task >> branch
+    # prev_group >> merge >> end
+    prev_group >> end
