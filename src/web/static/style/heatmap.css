@@ -1,5 +1,3 @@
-/* ---------------------------- */
-/* Base & Dark Mode */
 body {
     margin: 0;
     padding: 0;
@@ -10,7 +8,6 @@ body {
     overflow-x: hidden;
 }
 
-/* Animated floating particles background */
 body::before {
     content: '';
     position: fixed;
@@ -25,7 +22,6 @@ body::before {
     to { background-position: 1000px 1000px; }
 }
 
-/* Title */
 .title {
     font-size: 32px;
     margin: 20px 0;
@@ -34,7 +30,6 @@ body::before {
     position: relative;
 }
 
-/* Legend */
 .legend {
     display: flex;
     align-items: center;
@@ -51,18 +46,15 @@ body::before {
     border-radius: 10px;
 }
 
-/* Flex Container for Cards */
 .grid-container {
     display: flex;
     flex-wrap: wrap;
-    justify-content: center; /* ชิดกลาง */
+    justify-content: center; 
     gap: 20px;
     max-width: 900px;
     margin: 0 auto;
 }
 
-
-/* Stock Card */
 .stock-card {
     border-radius: 16px;
     padding: 15px;
@@ -70,17 +62,10 @@ body::before {
     transition: transform 0.3s, box-shadow 0.3s;
     color: #fff;
     cursor: pointer;
-    width: 250px; /* กว้างเท่ากัน */
-    flex: 1 1 250px; /* ยืดหยุ่น */
-}
-/* Hover effect: scale + glow + tooltip */
-.stock-card:hover {
-    transform: scale(1.1);
-    box-shadow: 0 0 20px 5px rgba(0, 255, 0, 0.7);
-    z-index: 2;
+    width: 250px;
+    flex: 1 1 250px; 
 }
 
-/* Tooltip */
 .stock-card::after {
     content: attr(data-tooltip);
     position: absolute;
@@ -101,37 +86,51 @@ body::before {
     opacity: 1;
 }
 
-/* Text inside card */
 .stock-card h3 { font-size: 20px; margin-bottom: 10px; }
 .stock-card .price { font-size: 18px; }
 .stock-card .change { font-size: 16px; font-weight: 600; }
 
-/* Glow animation for positive/negative */
-@keyframes pulseGlow {
+.stock-card:hover {
+    transform: scale(1.1);
+    z-index: 2;
+}
+
+.stock-card.positive:hover {
+    box-shadow: 0 0 20px 5px rgba(0, 255, 0, 0.7);
+    animation: pulseGlowGreen 1.5s infinite;
+}
+
+.stock-card.negative:hover {
+    box-shadow: 0 0 20px 5px rgba(255, 0, 0, 0.7);
+    animation: pulseGlowRed 1.5s infinite;
+}
+
+@keyframes pulseGlowGreen {
     0% { box-shadow: 0 0 5px rgba(0,255,0,0.5); }
     50% { box-shadow: 0 0 20px rgba(0,255,0,0.8); }
     100% { box-shadow: 0 0 5px rgba(0,255,0,0.5); }
 }
-.stock-card.positive:hover { animation: pulseGlow 1.5s infinite; }
-.stock-card.negative:hover { animation: pulseGlow 1.5s infinite; }
 
-/* Link reset */
+@keyframes pulseGlowRed {
+    0% { box-shadow: 0 0 5px rgba(255,0,0,0.5); }
+    50% { box-shadow: 0 0 20px rgba(255,0,0,0.8); }
+    100% { box-shadow: 0 0 5px rgba(255,0,0,0.5); }
+}
+
+
 .grid-container a { text-decoration: none; }
 
-
-
-/* Last Updated - Dark/Cyber Theme */
 .last-updated {
     font-size: 0.9rem;
-    color: #00e5ff;              /* สีฟ้า neon เข้ากับ title */
+    color: #00e5ff;             
     margin: 15px 0;
-    text-align: center;           /* อยู่กลางหน้า */
+    text-align: center;         
     font-style: italic;
-    background-color: rgba(0, 229, 255, 0.1); /* พื้นหลังโปร่งแสง neon */
+    background-color: rgba(0, 229, 255, 0.1); 
     padding: 5px 15px;
     border-radius: 12px;
     display: inline-block;
-    box-shadow: 0 0 10px rgba(0, 229, 255, 0.5); /* glow เล็กๆ */
+    box-shadow: 0 0 10px rgba(0, 229, 255, 0.5); 
     text-shadow: 0 0 5px #00e5ff;
     z-index: 1;
     position: relative;
@@ -143,9 +142,8 @@ body::before {
     transform: scale(1.05);
 }
 
-/* --- Force white ticker text inside the cards --- */
 .stock-card h3,
 .stock-card .ticker{
-  color: #ffffff !important;      /* เปลี่ยนเป็นขาวล้วน */
-  text-shadow: 0 1px 2px rgba(0,0,0,.25); /* ช่วยให้อ่านชัดบนพื้นเขียว (ลบได้ถ้าไม่ชอบ) */
+  color: #ffffff !important;    
+  text-shadow: 0 1px 2px rgba(0,0,0,.25); 
 }

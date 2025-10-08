@@ -6,14 +6,12 @@
 
 <h2 class="title">Stock Heatmap</h2>
 
-<!-- Legend -->
 <div class="legend" aria-label="Heatmap legend">
   <span>-3%</span>
   <div class="legend-bar"></div>
   <span>3%</span>
 </div>
 
-<!-- Heatmap Grid -->
 <div class="grid-container" role="list">
   {% for stock in data %}
     <a href="{{ url_for('views.stock_detail', symbol=stock.symbol) }}" role="listitem" aria-label="Open {{ stock.symbol }}">
@@ -22,13 +20,10 @@
         style="background-color: {{ stock.bg_color }};"
         data-tooltip="{{ stock.symbol }}"
       >
-        <!-- ชื่อหุ้น (บนกลาง) -->
         <h3>{{ stock.symbol }}</h3>
 
-        <!-- ราคา (กลาง) -->
         <p class="price">${{ '%.2f'|format(stock.price) }}</p>
 
-        <!-- เปอร์เซ็นต์การเปลี่ยนแปลง (ล่างกลาง) -->
         <p class="change">{{ '%.2f'|format(stock.change) }}%</p>
       </div>
     </a>
