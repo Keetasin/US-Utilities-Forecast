@@ -34,11 +34,7 @@ Ensure that you have Python 3.9+, Docker, and Docker Compose installed on your s
    ```bash
     docker-compose up -d
    ```
-2. Access the Flask web application
-   ```
-   http://localhost:5000
-   ```
-3. Access the Airflow web UI 
+2. Access the Airflow web UI 
    ```
    http://localhost:8080
    ```
@@ -49,7 +45,13 @@ Ensure that you have Python 3.9+, Docker, and Docker Compose installed on your s
         2. Find and edit the record **spark_default**.
         3. Set **Host** to `local[*]`.
         4. Click **Save**.
+   - Unpause DAG
 
+3. Access the Flask web application
+   - Wait for Airflow to finish running (especially on the first run), then open
+   ```
+   http://localhost:5000
+   ```
 4. Access pgAdmin 4 (local application)
    - Open pgAdmin 4 on your local machine.
    - Create a new server with the following settings:
