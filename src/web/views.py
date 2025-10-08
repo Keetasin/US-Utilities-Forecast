@@ -230,7 +230,7 @@ def dashboard():
 # Helper: downsample
 # ---------------------------
 def downsample_historical(data, steps):
-    """ลด resolution ให้สอดคล้องกับ horizon"""
+    """ลด resolution ให้สอดคล้องกับ horizon โดยเก็บวันล่าสุดเหมือนเดิม"""
     if not data or not isinstance(data, list):
         return data
     if steps <= 7:
@@ -243,14 +243,21 @@ def downsample_historical(data, steps):
     df["date"] = pd.to_datetime(df["date"])
     df.set_index("date", inplace=True)
 
+    last_day = df.index[-1]  # เก็บวันล่าสุด
     if steps == 180:
-        df = df.resample("W").last()
+        df_down = df.iloc[::7]  # เลือกทุก 7 วัน โดยไม่เปลี่ยนวันล่าสุด
     elif steps == 365:
-        df = df.resample("M").last()
+        df_down = df.iloc[::30]  # เลือกทุก 30 วัน (ประมาณเดือนละ 1 ครั้ง)
     else:
         return data
 
-    return [{"date": d.strftime("%Y-%m-%d"), "price": float(p)} for d, p in df["price"].items()]
+    # แนะนำ: เพิ่มวันล่าสุดกลับเข้าไปเสมอ
+    if last_day not in df_down.index:
+        df_down.loc[last_day] = df.loc[last_day]
+
+    df_down = df_down.sort_index()
+    return [{"date": d.strftime("%Y-%m-%d"), "price": float(p)} for d, p in df_down["price"].items()]
+
 
 
 # ---------------------------
@@ -300,17 +307,13 @@ def forecasting(symbol, model):
 
     backtest_mae = getattr(fc, "backtest_mae", None)
     last_price_val = getattr(fc, "last_price", None) or (forecast_json[0]["price"] if forecast_json else 0.0)
-    trend = {
-        "direction": "Up" if forecast_json and forecast_json[-1]["price"] > last_price_val else "Down",
-        "icon": "🔼" if forecast_json and forecast_json[-1]["price"] > last_price_val else "🔽"
-    }
     backtest_mae_pct = (backtest_mae / last_price_val * 100.0) if last_price_val and backtest_mae else 0.0
 
     return render_template("forecasting.html", symbol=symbol, model=model.upper(),
                            forecast=forecast_json, historical=historical,
                            backtest=backtest, backtest_mae=backtest_mae,
                            backtest_mae_pct=backtest_mae_pct, last_price=round(last_price_val, 2),
-                           trend=trend, has_data=True, steps=steps,
+                           has_data=True, steps=steps,
                            last_updated=fc.updated_at.strftime("%Y-%m-%d %H:%M"))
 
 

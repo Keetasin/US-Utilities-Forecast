@@ -1,8 +1,13 @@
 # ==========================================================
-# src/dags/forecast-stock.py  (SYNC 100% WITH Flask forecast.py; uses Parquet)
+# src/dags/forecast-stock.py
+#  - Synced with Flask logic
+#  - LSTM v2 (recursive/direct) + Technical Indicators
+#  - SARIMAX exog = external only (from Parquet)
+#  - LSTM exog = external + indicators
 # ==========================================================
+
 from airflow import DAG
-from airflow.operators.dummy import DummyOperator
+from airflow.operators.dummy import DummyOperator 
 from airflow.operators.python import PythonOperator, BranchPythonOperator
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
 from airflow.utils.task_group import TaskGroup
@@ -13,16 +18,18 @@ import json
 import numpy as np
 import pandas as pd
 from sqlalchemy import create_engine, text
+
 from statsmodels.tsa.arima.model import ARIMA
 from statsmodels.tsa.statespace.sarimax import SARIMAX
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler as SK_StandardScaler
 from sklearn.metrics import mean_absolute_error
+
 import tensorflow as tf
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense, Dropout, Bidirectional
-from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
 import pendulum
 import pyarrow.parquet as pq
+import builtins as _bi
+import ta 
+import traceback
 
 # ==========================================================
 # CONFIG
@@ -30,12 +37,14 @@ import pyarrow.parquet as pq
 PG_CONN = "postgresql+psycopg2://airflow:airflow@postgres/airflow"
 engine = create_engine(PG_CONN)
 
-# เลือกหุ้น/โมเดล/ฮอไรซอน
+# TICKERS = ["AEP", "DUK", "SO", "ED", "EXC"]
 TICKERS = ["AEP"]
 MODELS = ["ARIMA", "SARIMA", "SARIMAX", "LSTM"]
+
+# Calendar → BDays
 CALENDAR_TO_BDAYS = {7: 5, 180: 126, 365: 252}
 
-# Path parquet ที่ pull_yf.py เขียนไว้
+# Parquet ที่ Spark เขียน
 PARQUET_PATH = "/opt/airflow/src/spark/data/spark_out/market.parquet"
 
 tz_th = pendulum.timezone("Asia/Bangkok")
@@ -47,7 +56,7 @@ default_args = {
 }
 
 # ==========================================================
-# MODEL PARAMS (เหมือน Flask ทุกตัว)
+# MODEL PARAMS (เหมือนฝั่ง Flask)
 # ==========================================================
 MODEL_PARAMS = {
     "AEP": {
@@ -88,7 +97,7 @@ def get_params(symbol: str, model_name: str):
 # Calendar days -> Business days
 # ==========================================================
 def steps_to_bdays(steps: int) -> int:
-    return CALENDAR_TO_BDAYS.get(steps, steps)
+    return CALENDAR_TO_BDAYS.get(int(steps), int(steps))
 
 def to_bday_future_index(last_dt: pd.Timestamp, steps: int) -> pd.DatetimeIndex:
     bdays = steps_to_bdays(steps)
@@ -96,16 +105,18 @@ def to_bday_future_index(last_dt: pd.Timestamp, steps: int) -> pd.DatetimeIndex:
     return pd.bdate_range(start=start, periods=bdays)
 
 # ==========================================================
-# Utils (เหมือน Flask)
+# Utils
 # ==========================================================
 def to_scalar(x) -> float:
-    return float(np.asarray(x).reshape(-1)[0])
+    return _bi.float(np.asarray(x).reshape(-1)[0])
 
-def ensure_datetime_freq(series: pd.Series, use_bdays=True) -> pd.Series:
+def ensure_datetime_freq(series: pd.Series | pd.DataFrame, use_bdays=True) -> pd.Series | pd.DataFrame:
     s = series.copy()
     if not isinstance(s.index, pd.DatetimeIndex):
         s.index = pd.to_datetime(s.index, errors="coerce")
     s = s[~s.index.isna()].sort_index()
+    if len(s) == 0:
+        return s
     inferred = pd.infer_freq(s.index)
     if inferred is None:
         full_idx = pd.bdate_range(s.index.min(), s.index.max()) if use_bdays else pd.date_range(s.index.min(), s.index.max())
@@ -119,105 +130,289 @@ def series_to_chart_pairs_safe(series: pd.Series):
         s.index = idx
     return [{"date": d.strftime('%Y-%m-%d'), "price": round(to_scalar(p), 2)} for d, p in zip(s.index, s.values)]
 
-def choose_seasonal_m(steps: int) -> int:
-    if steps <= 30: return 5
-    elif steps <= 180: return 20
-    elif steps <= 365: return 63
-    else: return 252
+def _as_series(x) -> pd.Series:
+    if isinstance(x, pd.Series):
+        return x
+    if isinstance(x, pd.DataFrame):
+        if "Close" in x.columns:
+            s = x["Close"]
+        else:
+            num_cols = [c for c in x.columns if np.issubdtype(x[c].dtype, np.number)]
+            s = x[num_cols[0]] if num_cols else x.iloc[:, 0]
+        return pd.Series(s.values, index=s.index, name=getattr(s, "name", "val"))
+    return pd.Series(x)
+
+def _prep_exog_rets(exog, target_index: pd.DatetimeIndex) -> pd.DataFrame | None:
+    if exog is None:
+        return None
+    if isinstance(exog, pd.Series):
+        exog = exog.to_frame(name="ex0")
+    if not isinstance(exog, pd.DataFrame) or exog.empty:
+        return None
+    ex_clean = ensure_datetime_freq(exog)
+    ex_rets = ex_clean.pct_change().replace([np.inf, -np.inf], np.nan).dropna(how="all")
+    ex_rets = ex_rets.reindex(target_index).ffill().dropna(how="all")
+    if ex_rets is None or ex_rets.empty:
+        return None
+    ex_rets.columns = [f"ex_{c}" for c in ex_rets.columns]
+    return ex_rets
 
 # ==========================================================
-# Exogenous (เหมือน Flask)
+# Exogenous forecast (random-walk)
 # ==========================================================
 def forecast_exog_series(exog_series: pd.Series, steps: int):
-    """Random-walk จาก historical returns (เหมือน Flask)"""
     try:
         returns = exog_series.pct_change().dropna()
         mu, sigma = returns.mean(), returns.std()
-        last_val = exog_series.iloc[-1]
+        last_val = _bi.float(exog_series.iloc[-1])
         future_vals = []
-        for _ in range(steps):
+        for _ in range(steps_to_bdays(steps)):
             shock = np.random.normal(mu, sigma)
             last_val *= (1 + shock)
             future_vals.append(last_val)
         return pd.Series(future_vals, index=to_bday_future_index(exog_series.index[-1], steps))
     except Exception:
-        last_val = exog_series.iloc[-1]
-        return pd.Series([last_val] * steps, index=to_bday_future_index(exog_series.index[-1], steps))
+        last_val = _bi.float(exog_series.iloc[-1])
+        return pd.Series([last_val] * steps_to_bdays(steps), index=to_bday_future_index(exog_series.index[-1], steps))
 
 # ==========================================================
-# LSTM (better version — เหมือน Flask)
+# Technical Indicators  (ใช้เฉพาะกับ LSTM features)
 # ==========================================================
+def build_indicators(close: pd.Series) -> pd.DataFrame:
+    """คืน DataFrame ของอินดิเคเตอร์ (index ตรงกับ close)"""
+    s = ensure_datetime_freq(close).astype(_bi.float)
+    df = pd.DataFrame(index=s.index)
+    # EMA
+    df["ind_ema10"] = ta.trend.ema_indicator(s, window=10, fillna=True)
+    df["ind_ema50"] = ta.trend.ema_indicator(s, window=50, fillna=True)
+    # RSI
+    df["ind_rsi14"] = ta.momentum.rsi(s, window=14, fillna=True)
+    # MACD
+    macd = ta.trend.MACD(s, window_slow=26, window_fast=12, window_sign=9, fillna=True)
+    df["ind_macd"] = macd.macd()
+    df["ind_macd_signal"] = macd.macd_signal()
+    # Bollinger %B
+    bb = ta.volatility.BollingerBands(s, window=20, window_dev=2, fillna=True)
+    df["ind_bbp"] = (s - bb.bollinger_lband()) / (bb.bollinger_hband() - bb.bollinger_lband() + 1e-9)
+    # Volatility (rolling std of returns)
+    df["ind_vol20"] = s.pct_change().rolling(20, min_periods=1).std().fillna(0.0)
+    # เติมค่าให้ไม่มี NaN
+    df = df.replace([np.inf, -np.inf], np.nan).fillna(method="ffill").fillna(method="bfill").fillna(0.0)
+    return df
+
+# ==========================================================
+# LSTM v2 (ระยะสั้น: recursive รายวัน | ระยะยาว: direct รายสัปดาห์)
+# ==========================================================
+def lstm_forecast_v2(
+    series: pd.Series,
+    exog: pd.DataFrame | None = None,
+    steps: int = 7,
+    lookback: int = 120,
+    # epochs: int = 30,
+    epochs: int = 1,
+    batch_size: int = 64,
+    patience: int = 10,
+    horizon_mode: str = "auto",   # "auto" | "recursive" | "direct"
+    agg_step: int = 5,            # ใช้เมื่อ horizon_mode="direct"
+    clip_ret: float | None = 0.08,# clip ผลตอบแทน/วัน กันหลุด
+    blend_drift: float = 0.2,     # ผสมค่าเฉลี่ยระยะยาวเมื่อ horizon ไกล
+) -> np.ndarray:
+    _Sequential = tf.keras.models.Sequential
+    _LSTM = tf.keras.layers.LSTM
+    _Bidirectional = tf.keras.layers.Bidirectional
+    _Dropout = tf.keras.layers.Dropout
+    _Dense = tf.keras.layers.Dense
+    _Huber = tf.keras.losses.Huber
+    _EarlyStopping = tf.keras.callbacks.EarlyStopping
+    _ReduceLROnPlateau = tf.keras.callbacks.ReduceLROnPlateau
+
+    try:
+        s = ensure_datetime_freq(_as_series(series)).astype(np.float32)
+        rets = s.pct_change().replace([np.inf, -np.inf], np.nan).dropna()
+        if isinstance(rets, pd.DataFrame):
+            rets = rets.iloc[:, 0]
+        feats = [rets.rename("target_ret")]
+
+        ex_rets = _prep_exog_rets(exog, rets.index)
+        if ex_rets is not None:
+            feats.append(ex_rets)
+
+        df = pd.concat(feats, axis=1).dropna(how="any")
+        if len(df) == 0:
+            return np.asarray([_bi.float(s.iloc[-1])] * steps_to_bdays(steps), dtype=np.float32)
+
+        H = steps_to_bdays(int(steps))
+        drift = _bi.float(df["target_ret"].mean()) if "target_ret" in df.columns else 0.0
+
+        if horizon_mode == "auto":
+            horizon_mode = "direct" if H > 63 else "recursive"
+
+        data = df.values.astype(np.float32)
+        nfeat = data.shape[1]
+        scaler_X = SK_StandardScaler()
+        data_z = scaler_X.fit_transform(data)
+        L = int(lookback)
+
+        # ----- Recursive (daily) -----
+        if horizon_mode == "recursive":
+            if len(df) < (L + 10):
+                last_price = _bi.float(s.iloc[-1])
+                out = []
+                for t in range(H):
+                    r = drift
+                    if blend_drift > 0:
+                        w = blend_drift * (t + 1) / H
+                        r = (1 - w) * r + w * drift
+                    if clip_ret is not None:
+                        r = _bi.float(np.clip(r, -clip_ret, clip_ret))
+                    last_price *= (1.0 + r)
+                    out.append(last_price)
+                return np.asarray(out, dtype=np.float32)
+
+            X, y = [], []
+            for i in range(L, len(data_z)):
+                X.append(data_z[i - L:i])
+                y.append(data_z[i, 0])  # target_ret z-score
+            X = np.asarray(X, dtype=np.float32)
+            y = np.asarray(y, dtype=np.float32)
+
+            split = int(len(X) * 0.8)
+            X_tr, y_tr = X[:split], y[:split]
+            X_va, y_va = X[split:], y[split:]
+
+            tf.keras.backend.clear_session()
+            model = _Sequential([
+                _Bidirectional(_LSTM(64, return_sequences=True)),
+                _Dropout(0.2),
+                _Bidirectional(_LSTM(32)),
+                _Dense(1),
+            ])
+            model.compile(optimizer="adam", loss=_Huber())
+            cbs = [
+                _EarlyStopping(monitor="val_loss", patience=int(patience), restore_best_weights=True),
+                _ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=max(3, int(patience)//3), min_lr=1e-5),
+            ]
+            model.fit(X_tr, y_tr, validation_data=(X_va, y_va),
+                      epochs=int(epochs), batch_size=int(batch_size), verbose=0, callbacks=cbs)
+
+            last_price = _bi.float(s.iloc[-1])
+            last_win = data_z[-L:].copy()
+            out = []
+            for t in range(H):
+                z_scaled = _bi.float(model.predict(last_win.reshape(1, L, nfeat), verbose=0)[0, 0])
+                inv_ret = _bi.float(
+                    scaler_X.inverse_transform(
+                        np.array([[z_scaled] + [0]*(nfeat-1)], dtype=np.float32)
+                    )[0, 0]
+                )
+                if blend_drift > 0:
+                    w = blend_drift * (t + 1) / H
+                    inv_ret = (1 - w) * inv_ret + w * drift
+                if clip_ret is not None:
+                    inv_ret = _bi.float(np.clip(inv_ret, -clip_ret, clip_ret))
+
+                last_price *= (1.0 + inv_ret)
+                out.append(last_price)
+
+                last_win = np.roll(last_win, -1, axis=0)
+                last_win[-1, 0] = z_scaled
+                if nfeat > 1:
+                    last_win[-1, 1:] = last_win[-2, 1:]
+            return np.asarray(out, dtype=np.float32)
+
+        # ----- Direct multi-horizon (weekly blocks) -----
+        else:
+            import math
+            K = int(math.ceil(H / int(agg_step)))
+            target_lr = np.log1p(df.iloc[:, 0].astype(np.float32)).values
+            max_shift = K * int(agg_step)
+            if len(df) < (L + max_shift + 10):
+                return lstm_forecast_v2(series, exog, steps, lookback, epochs, batch_size, patience,
+                                        horizon_mode="recursive", clip_ret=clip_ret, blend_drift=blend_drift)
+
+            X_list, Y_list = [], []
+            for i in range(L, len(data_z) - max_shift):
+                X_list.append(data_z[i - L:i])
+                yk = []
+                for k in range(K):
+                    start = i + k * int(agg_step)
+                    end   = start + int(agg_step)
+                    yk.append(target_lr[start:end].sum())
+                Y_list.append(yk)
+            X = np.asarray(X_list, dtype=np.float32)
+            Y = np.asarray(Y_list, dtype=np.float32)
+
+            split = int(len(X) * 0.8)
+            X_tr, X_va = X[:split], X[split:]
+            Y_tr, Y_va = Y[:split], Y[split:]
+
+            y_scaler = SK_StandardScaler()
+            Y_tr_z = y_scaler.fit_transform(Y_tr)
+            Y_va_z = y_scaler.transform(Y_va)
+
+            tf.keras.backend.clear_session()
+            model = _Sequential([
+                _Bidirectional(_LSTM(64, return_sequences=True)),
+                _Dropout(0.2),
+                _Bidirectional(_LSTM(32)),
+                _Dense(K),
+            ])
+            model.compile(optimizer="adam", loss=_Huber())
+            cbs = [
+                _EarlyStopping(monitor="val_loss", patience=int(patience), restore_best_weights=True),
+                _ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=max(3, int(patience)//3), min_lr=1e-5),
+            ]
+            model.fit(X_tr, Y_tr_z, validation_data=(X_va, Y_va_z),
+                      epochs=int(epochs), batch_size=int(batch_size), verbose=0, callbacks=cbs)
+
+            last_price = _bi.float(s.iloc[-1])
+            last_win = data_z[-L:].copy()
+            y_pred_z = model.predict(last_win.reshape(1, L, nfeat), verbose=0)[0]
+            y_pred_lr_blocks = y_scaler.inverse_transform(y_pred_z.reshape(1, -1))[0]
+
+            out = []
+            for k in range(K):
+                block_lr = _bi.float(y_pred_lr_blocks[k])
+                if blend_drift > 0:
+                    w = blend_drift * (k + 1) / K
+                    block_lr = (1 - w) * block_lr + w * np.log1p(drift)
+
+                days_in_block = int(agg_step) if k < K - 1 else (H - int(agg_step) * (K - 1))
+                per_day_lr = block_lr / max(1, days_in_block)
+                per_day_ret = np.expm1(per_day_lr)
+                for _ in range(days_in_block):
+                    r = per_day_ret
+                    if clip_ret is not None:
+                        r = _bi.float(np.clip(r, -clip_ret, clip_ret))
+                    last_price *= (1.0 + r)
+                    out.append(last_price)
+            return np.asarray(out[:H], dtype=np.float32)
+
+    except Exception:
+        print("[LSTM DEBUG] traceback:\n", traceback.format_exc())
+        raise
+
 def lstm_forecast_better(series: pd.Series,
                          exog: pd.DataFrame | None = None,
                          steps: int = 7,
                          lookback: int = 120,
-                         epochs: int = 1,
+                         epochs: int = 30,
                          batch_size: int = 64,
                          patience: int = 10) -> np.ndarray:
-    s = ensure_datetime_freq(series).astype(np.float32)
-    rets = s.pct_change().dropna()
-
-    if exog is not None:
-        exog_clean = ensure_datetime_freq(exog)
-        exog_rets = exog_clean.pct_change().dropna()
-        combined_df = pd.concat([rets, exog_rets], axis=1).dropna()
-        data = combined_df.values.astype(np.float32)
-        num_features = data.shape[1]
+    H = steps_to_bdays(int(steps))
+    if H > 63:
+        return lstm_forecast_v2(
+            series, exog, steps, lookback, epochs, batch_size, patience,
+            horizon_mode="direct", agg_step=5, clip_ret=0.08, blend_drift=0.2
+        )
     else:
-        combined_df = rets.to_frame()
-        data = combined_df.values.astype(np.float32)
-        num_features = 1
-
-    if len(combined_df) < lookback + 10:
-        return np.array([float(s.iloc[-1])] * steps, dtype=np.float32)
-
-    scaler = StandardScaler()
-    scaled_data = scaler.fit_transform(data)
-
-    X, y = [], []
-    for i in range(lookback, len(scaled_data)):
-        X.append(scaled_data[i - lookback:i])
-        y.append(scaled_data[i, 0])
-    X, y = np.asarray(X, dtype=np.float32), np.asarray(y, dtype=np.float32)
-
-    split = int(len(X) * 0.8)
-    X_tr, y_tr, X_va, y_va = X[:split], y[:split], X[split:], y[split:]
-
-    tf.keras.backend.clear_session()
-    model = Sequential([
-        tf.keras.Input(shape=(lookback, num_features)),
-        Bidirectional(LSTM(64, return_sequences=True)),
-        Dropout(0.2),
-        Bidirectional(LSTM(32)),
-        Dense(1),
-    ])
-    model.compile(optimizer="adam", loss=tf.keras.losses.Huber())
-    cbs = [
-        EarlyStopping(monitor="val_loss", patience=patience, restore_best_weights=True),
-        ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=max(3, patience // 3), min_lr=1e-5),
-    ]
-    model.fit(X_tr, y_tr, validation_data=(X_va, y_va),
-              epochs=epochs, batch_size=batch_size, verbose=0, callbacks=cbs)
-
-    last_window = scaled_data[-lookback:].copy()
-    pred_prices, last_price = [], float(s.iloc[-1].item())
-
-    for _ in range(steps):
-        x = last_window.reshape(1, lookback, num_features)
-        pred_z = float(model.predict(x, verbose=0)[0, 0])
-        pred_ret = float(scaler.inverse_transform([[pred_z] + [0] * (num_features - 1)])[0, 0])
-        last_price *= (1.0 + pred_ret)
-        pred_prices.append(last_price)
-
-        last_window = np.roll(last_window, -1, axis=0)
-        last_window[-1, 0] = pred_z
-        if num_features > 1:
-            last_window[-1, 1:] = scaled_data[-1, 1:]
-
-    return np.array(pred_prices, dtype=np.float32)
+        return lstm_forecast_v2(
+            series, exog, steps, lookback, epochs, batch_size, patience,
+            horizon_mode="recursive", agg_step=1, clip_ret=0.07, blend_drift=0.0
+        )
 
 # ==========================================================
-# Helpers (เหมือน Flask)
+# Forecasting helpers (ARIMA/SARIMA/SARIMAX)
 # ==========================================================
 def backtest_last_n_days(series: pd.Series, model_name: str, steps=7, exog=None, symbol="GENERIC"):
     s = ensure_datetime_freq(series)
@@ -233,33 +428,42 @@ def backtest_last_n_days(series: pd.Series, model_name: str, steps=7, exog=None,
     if model_name == "arima":
         m = ARIMA(train_data, order=order).fit()
         fc = m.forecast(steps=steps_b)
+
     elif model_name == "sarima":
         m_val = choose_seasonal_m(steps_b)
         m = SARIMAX(train_data, order=order,
                     seasonal_order=(seasonal_order[0], seasonal_order[1], seasonal_order[2], m_val),
                     enforce_stationarity=False, enforce_invertibility=False).fit(disp=False)
         fc = m.forecast(steps=steps_b)
+
     elif model_name == "sarimax":
-        if exog is None:
+        if (exog is None) or (isinstance(exog, pd.DataFrame) and exog.empty):
             raise ValueError("SARIMAX requires exogenous variable (exog).")
-        exog = ensure_datetime_freq(exog).reindex(s.index)
-        exog = exog.ffill().bfill().replace([np.inf, -np.inf], np.nan).fillna(0)
-        exog_train = exog.iloc[:-steps_b]
-        exog_future = exog.iloc[-steps_b:]  # เหมือน Flask (ใช้อนาคตจริงสำหรับ backtest)
+        exg = ensure_datetime_freq(exog).reindex(s.index)
+        exg = exg.ffill().bfill().replace([np.inf, -np.inf], np.nan).fillna(0)
+        ex_tr = exg.iloc[:-steps_b]
+        ex_fu = exg.iloc[-steps_b:]
+
         m_val = choose_seasonal_m(steps_b)
         m = SARIMAX(train_data, order=order,
                     seasonal_order=(seasonal_order[0], seasonal_order[1], seasonal_order[2], m_val),
-                    exog=exog_train,
+                    exog=ex_tr,
                     enforce_stationarity=False, enforce_invertibility=False).fit(disp=False)
-        fc = m.forecast(steps=steps_b, exog=exog_future)
+        fc = m.forecast(steps=steps_b, exog=ex_fu)
+
     elif model_name == "lstm":
-        fc_vals = lstm_forecast_better(train_data, exog=exog.iloc[:-steps_b] if exog is not None else None, steps=steps_b)
+        fc_vals = lstm_forecast_better(
+            train_data,
+            exog=exog.iloc[:-steps_b] if isinstance(exog, pd.DataFrame) else None,
+            steps=steps_b
+        )
         fc = pd.Series(fc_vals, index=true_future.index)
+
     else:
         raise ValueError("Unknown model")
 
-    mae = mean_absolute_error(true_future.values, fc.values)
-    return pd.Series(fc.values, index=true_future.index), mae
+    mae = mean_absolute_error(true_future.values, pd.Series(fc, index=true_future.index).values)
+    return pd.Series(fc, index=true_future.index), mae
 
 def future_forecast(series: pd.Series, model_name: str, steps=7, exog=None, symbol="GENERIC"):
     s = ensure_datetime_freq(series)
@@ -271,38 +475,51 @@ def future_forecast(series: pd.Series, model_name: str, steps=7, exog=None, symb
     if model_name == "arima":
         m = ARIMA(s, order=order).fit()
         fc = m.forecast(steps=steps_b)
+
     elif model_name == "sarima":
         m_val = choose_seasonal_m(steps_b)
         m = SARIMAX(s, order=order,
                     seasonal_order=(seasonal_order[0], seasonal_order[1], seasonal_order[2], m_val),
                     enforce_stationarity=False, enforce_invertibility=False).fit(disp=False)
         fc = m.forecast(steps=steps_b)
+
     elif model_name == "sarimax":
-        if exog is None:
+        if (exog is None) or (isinstance(exog, pd.DataFrame) and exog.empty):
             raise ValueError("SARIMAX requires exogenous variable (exog).")
-        exog_hist = ensure_datetime_freq(exog).reindex(s.index)
-        exog_hist = exog_hist.ffill().bfill().replace([np.inf, -np.inf], np.nan).fillna(0)
-        exog_future = pd.DataFrame(index=to_bday_future_index(last_dt, steps_b))
-        for col in exog_hist.columns:
-            exog_future[col] = forecast_exog_series(exog_hist[col], steps_b)
-        exog_future = exog_future.replace([np.inf, -np.inf], np.nan).fillna(0)
+        ex_hist = ensure_datetime_freq(exog).reindex(s.index)
+        ex_hist = ex_hist.ffill().bfill().replace([np.inf, -np.inf], np.nan).fillna(0)
+
+        fut_idx = to_bday_future_index(last_dt, steps_b)
+        ex_future = pd.DataFrame(index=fut_idx)
+        for col in ex_hist.columns:
+            ex_future[col] = forecast_exog_series(ex_hist[col], steps_b)
+        ex_future = ex_future.replace([np.inf, -np.inf], np.nan).fillna(0)
+
         m_val = choose_seasonal_m(steps_b)
         m = SARIMAX(s, order=order,
                     seasonal_order=(seasonal_order[0], seasonal_order[1], seasonal_order[2], m_val),
-                    exog=exog_hist,
+                    exog=ex_hist,
                     enforce_stationarity=False, enforce_invertibility=False).fit(disp=False)
-        fc = m.forecast(steps=steps_b, exog=exog_future)
+        fc = m.forecast(steps=steps_b, exog=ex_future)
+        return pd.Series(np.asarray(fc).ravel(), index=fut_idx)
+
     elif model_name == "lstm":
         vals = lstm_forecast_better(s, exog=exog, steps=steps_b)
-        fc = pd.Series(vals, index=to_bday_future_index(last_dt, steps_b))
-        return fc
+        return pd.Series(vals, index=to_bday_future_index(last_dt, steps_b))
+
     else:
         raise ValueError("Unknown model")
 
     return pd.Series(fc.values, index=to_bday_future_index(last_dt, steps_b))
 
+def choose_seasonal_m(steps: int) -> int:
+    if steps <= 30: return 5
+    elif steps <= 180: return 20
+    elif steps <= 365: return 63
+    else: return 252
+
 # ==========================================================
-# CORE: run model (อ่านจาก Parquet แทน yfinance)
+# CORE: run_model (อ่าน Parquet → สร้าง exog ที่ถูกต้องตามชนิดโมเดล)
 # ==========================================================
 def run_model(symbol, model_name, horizon, ti):
     try:
@@ -310,7 +527,6 @@ def run_model(symbol, model_name, horizon, ti):
         mname = model_name.lower()
         print(f"🔹 Running {symbol}-{mname}-{horizon}d | steps={steps_b}")
 
-        # --- Load parquet
         pdf = pq.read_table(PARQUET_PATH).to_pandas()
         pdf.columns = [c.lower() for c in pdf.columns]
         df = pdf[pdf["symbol"].str.lower() == symbol.lower()]
@@ -319,23 +535,40 @@ def run_model(symbol, model_name, horizon, ti):
 
         df["date"] = pd.to_datetime(df["date"])
         df = df.sort_values("date").set_index("date").asfreq("B").ffill().bfill()
+        close = df["close"].astype(float)
 
-        # close series
-        data = df["close"].astype(float)
+        # สร้าง indicators (ใช้กับ LSTM เท่านั้น)
+        ind = build_indicators(close)  # columns: ind_*
 
-        # exog columns: pull_yf.py เซฟชื่อเป็น cl_f, ng_f, xlu (lowercase)
-        exog_cols = [c for c in df.columns if c not in ["symbol", "close"]]
-        exog = df[exog_cols] if exog_cols else None
+        # ระบุคอลัมน์ exog "ภายนอก" ที่มาจาก Parquet (ไม่ใช่อินดิเคเตอร์)
+        external_cols = [c for c in df.columns if c not in ["symbol", "close"] and not c.startswith("ind_")]
+        exog_external = df[external_cols] if external_cols else None
 
-        # --- Backtest & Forecast (ตรรกะเดียวกับ Flask)
-        bt_series, bt_mae = backtest_last_n_days(data, model_name=mname, steps=horizon, exog=exog, symbol=symbol)
-        fut_series = future_forecast(data, model_name=mname, steps=horizon, exog=exog, symbol=symbol)
+        # exog สำหรับ LSTM = external + indicators
+        exog_lstm = None
+        if exog_external is not None and not exog_external.empty:
+            exog_lstm = pd.concat([exog_external, ind], axis=1)
+        else:
+            exog_lstm = ind.copy()
+
+        # เลือก exog ให้ถูกกับชนิดโมเดล
+        if mname == "sarimax":
+            exog_for_bt = exog_external
+            exog_for_fut = exog_external
+        elif mname == "lstm":
+            exog_for_bt = exog_lstm
+            exog_for_fut = exog_lstm
+        else:
+            exog_for_bt = None
+            exog_for_fut = None
+
+        bt_series, bt_mae = backtest_last_n_days(close, model_name=mname, steps=horizon, exog=exog_for_bt, symbol=symbol)
+        fut_series = future_forecast(close, model_name=mname, steps=horizon, exog=exog_for_fut, symbol=symbol)
 
         backtest_json = series_to_chart_pairs_safe(bt_series)
         forecast_json = series_to_chart_pairs_safe(fut_series)
-        last_price = to_scalar(data.iloc[-1])
+        last_price = to_scalar(close.iloc[-1])
 
-        # --- Save to Postgres
         with engine.begin() as conn:
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS stock_forecasts (
@@ -375,11 +608,11 @@ def run_model(symbol, model_name, horizon, ti):
         return {"symbol": symbol, "model": mname, "horizon": horizon, "status": "ok"}
 
     except Exception as e:
-        print(f"[{model_name.upper()} Error] {e}")
+        print(f"[{model_name.upper()} Error] {e}\n{traceback.format_exc()}")
         return {"symbol": symbol, "model": model_name, "horizon": horizon, "status": "error"}
 
 # ==========================================================
-# DAG helpers (XCom/Branch/Merge)
+# DAG helpers
 # ==========================================================
 def read_latest(ti):
     pdf = pq.read_table(PARQUET_PATH).to_pandas()
@@ -404,7 +637,7 @@ def merge_results(ti):
 with DAG(
     "forecast_stock_pipeline",
     default_args=default_args,
-    description="Forecast DAG (Parquet source) synced 100% with Flask forecast.py",
+    description="Forecast DAG (Parquet source) synced with Flask (LSTM v2 + Indicators)",
     schedule_interval="30 19 * * 1-5",
     start_date=datetime(2025, 1, 1, tzinfo=tz_th),
     catchup=False,
@@ -414,7 +647,7 @@ with DAG(
 
     spark_transform = SparkSubmitOperator(
         task_id="spark_transform",
-                application="/opt/airflow/src/spark/applications/spark_jobs/pull_yf.py",
+        application="/opt/airflow/src/spark/applications/spark_jobs/pull_yf.py",
         conn_id="spark_default",
         name="pull-yfinance-to-parquet",
         verbose=True,
@@ -440,6 +673,7 @@ with DAG(
         python_callable=merge_results,
         trigger_rule=TriggerRule.NONE_FAILED_MIN_ONE_SUCCESS,
     )
+
     end = DummyOperator(task_id="end")
 
     start >> spark_transform >> read_latest_task >> branch >> forecast_group >> merge >> end
