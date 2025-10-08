@@ -1,11 +1,3 @@
-# ==========================================================
-# src/dags/forecast-stock.py
-#  - Synced with Flask logic
-#  - LSTM v2 (recursive/direct) + Technical Indicators
-#  - SARIMAX exog = external only (from Parquet)
-#  - LSTM exog = external + indicators
-# ==========================================================
-
 from airflow import DAG
 from airflow.operators.dummy import DummyOperator 
 from airflow.operators.python import PythonOperator, BranchPythonOperator
@@ -31,20 +23,15 @@ import builtins as _bi
 import ta 
 import traceback
 
-# ==========================================================
-# CONFIG
-# ==========================================================
+
 PG_CONN = "postgresql+psycopg2://airflow:airflow@postgres/airflow"
 engine = create_engine(PG_CONN)
 
-# TICKERS = ["AEP", "DUK", "SO", "ED", "EXC"]
-TICKERS = ["AEP"]
+TICKERS = ["AEP", "DUK", "SO", "ED", "EXC"]
 MODELS = ["ARIMA", "SARIMA", "SARIMAX", "LSTM"]
 
-# Calendar → BDays
 CALENDAR_TO_BDAYS = {7: 5, 180: 126, 365: 252}
 
-# Parquet ที่ Spark เขียน
 PARQUET_PATH = "/opt/airflow/src/spark/data/spark_out/market.parquet"
 
 tz_th = pendulum.timezone("Asia/Bangkok")
@@ -55,9 +42,6 @@ default_args = {
     "retry_delay": timedelta(minutes=5),
 }
 
-# ==========================================================
-# MODEL PARAMS (เหมือนฝั่ง Flask)
-# ==========================================================
 MODEL_PARAMS = {
     "AEP": {
         "arima":   {"order": (1, 1, 0)},
@@ -93,9 +77,6 @@ def get_params(symbol: str, model_name: str):
     seasonal_order = model_cfg.get("seasonal_order", (1, 1, 0, 20))
     return order, seasonal_order
 
-# ==========================================================
-# Calendar days -> Business days
-# ==========================================================
 def steps_to_bdays(steps: int) -> int:
     return CALENDAR_TO_BDAYS.get(int(steps), int(steps))
 
@@ -104,9 +85,6 @@ def to_bday_future_index(last_dt: pd.Timestamp, steps: int) -> pd.DatetimeIndex:
     start = last_dt + pd.offsets.BDay(1)
     return pd.bdate_range(start=start, periods=bdays)
 
-# ==========================================================
-# Utils
-# ==========================================================
 def to_scalar(x) -> float:
     return _bi.float(np.asarray(x).reshape(-1)[0])
 
@@ -157,9 +135,6 @@ def _prep_exog_rets(exog, target_index: pd.DatetimeIndex) -> pd.DataFrame | None
     ex_rets.columns = [f"ex_{c}" for c in ex_rets.columns]
     return ex_rets
 
-# ==========================================================
-# Exogenous forecast (random-walk)
-# ==========================================================
 def forecast_exog_series(exog_series: pd.Series, steps: int):
     try:
         returns = exog_series.pct_change().dropna()
@@ -175,47 +150,39 @@ def forecast_exog_series(exog_series: pd.Series, steps: int):
         last_val = _bi.float(exog_series.iloc[-1])
         return pd.Series([last_val] * steps_to_bdays(steps), index=to_bday_future_index(exog_series.index[-1], steps))
 
-# ==========================================================
-# Technical Indicators  (ใช้เฉพาะกับ LSTM features)
-# ==========================================================
 def build_indicators(close: pd.Series) -> pd.DataFrame:
-    """คืน DataFrame ของอินดิเคเตอร์ (index ตรงกับ close)"""
     s = ensure_datetime_freq(close).astype(_bi.float)
     df = pd.DataFrame(index=s.index)
-    # EMA
+
     df["ind_ema10"] = ta.trend.ema_indicator(s, window=10, fillna=True)
     df["ind_ema50"] = ta.trend.ema_indicator(s, window=50, fillna=True)
-    # RSI
+
     df["ind_rsi14"] = ta.momentum.rsi(s, window=14, fillna=True)
-    # MACD
+ 
     macd = ta.trend.MACD(s, window_slow=26, window_fast=12, window_sign=9, fillna=True)
     df["ind_macd"] = macd.macd()
     df["ind_macd_signal"] = macd.macd_signal()
-    # Bollinger %B
+
     bb = ta.volatility.BollingerBands(s, window=20, window_dev=2, fillna=True)
     df["ind_bbp"] = (s - bb.bollinger_lband()) / (bb.bollinger_hband() - bb.bollinger_lband() + 1e-9)
-    # Volatility (rolling std of returns)
+   
     df["ind_vol20"] = s.pct_change().rolling(20, min_periods=1).std().fillna(0.0)
-    # เติมค่าให้ไม่มี NaN
+  
     df = df.replace([np.inf, -np.inf], np.nan).fillna(method="ffill").fillna(method="bfill").fillna(0.0)
     return df
 
-# ==========================================================
-# LSTM v2 (ระยะสั้น: recursive รายวัน | ระยะยาว: direct รายสัปดาห์)
-# ==========================================================
 def lstm_forecast_v2(
     series: pd.Series,
     exog: pd.DataFrame | None = None,
     steps: int = 7,
     lookback: int = 120,
-    # epochs: int = 30,
-    epochs: int = 1,
+    epochs: int = 30,
     batch_size: int = 64,
     patience: int = 10,
-    horizon_mode: str = "auto",   # "auto" | "recursive" | "direct"
-    agg_step: int = 5,            # ใช้เมื่อ horizon_mode="direct"
-    clip_ret: float | None = 0.08,# clip ผลตอบแทน/วัน กันหลุด
-    blend_drift: float = 0.2,     # ผสมค่าเฉลี่ยระยะยาวเมื่อ horizon ไกล
+    horizon_mode: str = "auto",  
+    agg_step: int = 5,           
+    clip_ret: float | None = 0.08,
+    blend_drift: float = 0.2,     
 ) -> np.ndarray:
     _Sequential = tf.keras.models.Sequential
     _LSTM = tf.keras.layers.LSTM
@@ -253,7 +220,6 @@ def lstm_forecast_v2(
         data_z = scaler_X.fit_transform(data)
         L = int(lookback)
 
-        # ----- Recursive (daily) -----
         if horizon_mode == "recursive":
             if len(df) < (L + 10):
                 last_price = _bi.float(s.iloc[-1])
@@ -272,7 +238,7 @@ def lstm_forecast_v2(
             X, y = [], []
             for i in range(L, len(data_z)):
                 X.append(data_z[i - L:i])
-                y.append(data_z[i, 0])  # target_ret z-score
+                y.append(data_z[i, 0])  
             X = np.asarray(X, dtype=np.float32)
             y = np.asarray(y, dtype=np.float32)
 
@@ -320,7 +286,6 @@ def lstm_forecast_v2(
                     last_win[-1, 1:] = last_win[-2, 1:]
             return np.asarray(out, dtype=np.float32)
 
-        # ----- Direct multi-horizon (weekly blocks) -----
         else:
             import math
             K = int(math.ceil(H / int(agg_step)))
@@ -411,9 +376,6 @@ def lstm_forecast_better(series: pd.Series,
             horizon_mode="recursive", agg_step=1, clip_ret=0.07, blend_drift=0.0
         )
 
-# ==========================================================
-# Forecasting helpers (ARIMA/SARIMA/SARIMAX)
-# ==========================================================
 def backtest_last_n_days(series: pd.Series, model_name: str, steps=7, exog=None, symbol="GENERIC"):
     s = ensure_datetime_freq(series)
     steps_b = steps_to_bdays(steps)
@@ -518,9 +480,6 @@ def choose_seasonal_m(steps: int) -> int:
     elif steps <= 365: return 63
     else: return 252
 
-# ==========================================================
-# CORE: run_model (อ่าน Parquet → สร้าง exog ที่ถูกต้องตามชนิดโมเดล)
-# ==========================================================
 def run_model(symbol, model_name, horizon, ti):
     try:
         steps_b = steps_to_bdays(horizon)
@@ -537,21 +496,17 @@ def run_model(symbol, model_name, horizon, ti):
         df = df.sort_values("date").set_index("date").asfreq("B").ffill().bfill()
         close = df["close"].astype(float)
 
-        # สร้าง indicators (ใช้กับ LSTM เท่านั้น)
-        ind = build_indicators(close)  # columns: ind_*
+        ind = build_indicators(close) 
 
-        # ระบุคอลัมน์ exog "ภายนอก" ที่มาจาก Parquet (ไม่ใช่อินดิเคเตอร์)
         external_cols = [c for c in df.columns if c not in ["symbol", "close"] and not c.startswith("ind_")]
         exog_external = df[external_cols] if external_cols else None
 
-        # exog สำหรับ LSTM = external + indicators
         exog_lstm = None
         if exog_external is not None and not exog_external.empty:
             exog_lstm = pd.concat([exog_external, ind], axis=1)
         else:
             exog_lstm = ind.copy()
 
-        # เลือก exog ให้ถูกกับชนิดโมเดล
         if mname == "sarimax":
             exog_for_bt = exog_external
             exog_for_fut = exog_external
@@ -611,9 +566,6 @@ def run_model(symbol, model_name, horizon, ti):
         print(f"[{model_name.upper()} Error] {e}\n{traceback.format_exc()}")
         return {"symbol": symbol, "model": model_name, "horizon": horizon, "status": "error"}
 
-# ==========================================================
-# DAG helpers
-# ==========================================================
 def read_latest(ti):
     pdf = pq.read_table(PARQUET_PATH).to_pandas()
     pdf.columns = [c.lower() for c in pdf.columns]
@@ -631,9 +583,6 @@ def merge_results(ti):
         last = conn.execute(text("SELECT MAX(updated_at) FROM stock_forecasts")).scalar()
         print(f"📊 Total records: {total}, Last updated: {last}")
 
-# ==========================================================
-# DAG DEFINITION
-# ==========================================================
 with DAG(
     "forecast_stock_pipeline",
     default_args=default_args,
@@ -665,7 +614,7 @@ with DAG(
                     PythonOperator(
                         task_id=f"{sym}_{model}_{h}",
                         python_callable=run_model,
-                        op_kwargs={"symbol": sym, "model_name": model, "horizon": h},
+                        op_kwargs={"symbol": sym, "model_name": model, "horizon": h},  
                     )
 
     merge = PythonOperator(
