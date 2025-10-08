@@ -7,9 +7,12 @@
 <h2 class="title">Stock Price Forecasting</h2>
 
 {% if symbol %}
-  <h3 class="title" style="font-size:28px;">{{ symbol }} — {{ model or 'ARIMA' }}</h3>
+  <h3 class="title" style="font-size:28px;">
+    <a href="{{ url_for('views.stock_detail', symbol=symbol) }}" style="color:#00e5ff; text-decoration:none;">
+        {{ symbol }}
+    </a> — {{ model or 'ARIMA' }}
+  </h3>
 
-  <!-- ปุ่มสลับโมเดล -->
   <div class="model-switch">
     <a class="back-link {{ 'active' if model|lower=='arima' else '' }}" 
        href="{{ url_for('views.forecasting', symbol=symbol, model='arima', steps=request.args.get('steps',steps)) }}">ARIMA</a>
@@ -20,22 +23,9 @@
     <a class="back-link {{ 'active' if model|lower=='lstm' else '' }}" 
        href="{{ url_for('views.forecasting', symbol=symbol, model='lstm', steps=request.args.get('steps',steps)) }}">LSTM</a>
     <a class="back-link" 
-       href="{{ url_for('views.compare_models', symbol=symbol, steps=request.args.get('steps',steps)) }}">🔀 Compare Models</a>
+       href="{{ url_for('views.compare_models', symbol=symbol, steps=request.args.get('steps',steps)) }}">Compare Models</a>
   </div>
-
-  <!-- Dropdown horizon -->
-  <form method="get" action="">
-    <div class="chart-controls forecasting-filters">
-      <select name="steps" id="steps" onchange="this.form.submit()">
-        <option value="7"   {{ 'selected' if steps==7 else '' }}>1 Week</option>
-        <option value="180" {{ 'selected' if steps==180 else '' }}>6 Months</option>
-        <option value="365" {{ 'selected' if steps==365 else '' }}>1 Year</option>
-      </select>
-    </div>
-  </form>
-  
 {% endif %}
-
 
 {% if error %}
   <div class="summary-box" style="background:#401818;">
@@ -45,17 +35,30 @@
 {% endif %}
 
 {% if has_data %}
-  <div class="summary-box">
-    <p>Last Price: ${{ last_price }}</p>
-    <p>{{ steps }}-Day Forecast: ${{ forecast[-1].price }}</p>
-    <p>Trend: {{ trend.icon }} {{ trend.direction }}</p>
-    <hr style="border-color:#444;">
-    <p>
-        Backtest Error (MAE):
-        ${{ backtest_mae | round(2) }}
-        (~{{ backtest_mae_pct | round(2) }}%)
-    </p>
+  <div class="cards-container">
+      <div class="card">
+          <h4>Last Price</h4>
+          <p>${{ last_price }}</p>
+      </div>
+      <div class="card">
+          <h4>{{ steps }}-Day Forecast</h4>
+          <p>${{ forecast[-1].price }}</p>
+      </div>
+      <div class="card">
+          <h4>MAE</h4>
+          <p>{{ backtest_mae | round(2) }}</p>
+      </div>
   </div>
+
+  <form method="get" action="">
+    <div class="chart-controls forecasting-filters">
+      <select name="steps" id="steps" onchange="this.form.submit()">
+        <option value="7"   {{ 'selected' if steps==7 else '' }}>1 Week</option>
+        <option value="180" {{ 'selected' if steps==180 else '' }}>6 Months</option>
+        <option value="365" {{ 'selected' if steps==365 else '' }}>1 Year</option>
+      </select>
+    </div>
+  </form>
 
   <div class="chart-container" style="position:relative; width:80%; max-width:900px; margin:auto;">
     <canvas id="forecastChart"></canvas>
@@ -94,7 +97,7 @@
             tension: 0.1
           },
           {
-            label: `Backtest (last {{ steps }})`,
+            label: `Backtest`,
             data: backtestPrices,
             borderColor: 'rgb(0, 255, 132)',
             borderDash:[5,5],
@@ -102,7 +105,7 @@
             pointRadius:2
           },
           {
-            label: `Future Forecast (next {{ steps }})`,
+            label: `Forecast`,
             data: forecastPrices,
             borderColor: 'rgb(255, 204, 0)',
             borderDash:[5,5],
@@ -112,12 +115,25 @@
         ]
       },
       options: {
-        scales: {
-          y: { beginAtZero:false, grid:{color:'rgba(255,255,255,0.1)'}, ticks:{color:'#fff'} },
-          x: { grid:{color:'rgba(255,255,255,0.1)'}, ticks:{color:'#fff'} }
-        },
-        plugins: { legend:{ labels:{ color:'#fff' } } }
-      }
+          scales: {
+            y: { 
+              beginAtZero: false, 
+              grid: { color: 'rgba(255,255,255,0.1)' }, 
+              ticks: { color: '#fff' },
+              title: {
+                display: true,
+                text: 'Price (USD)',
+                color: '#fff',
+                font: { size: 14 }
+              }
+            },
+            x: { 
+              grid: { color: 'rgba(255,255,255,0.1)' }, 
+              ticks: { color: '#fff' }
+            }
+          },
+          plugins: { legend:{ labels:{ color:'#fff' } } }
+        }
     });
   </script>
 {% else %}
