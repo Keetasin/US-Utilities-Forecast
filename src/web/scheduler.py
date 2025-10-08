@@ -2,23 +2,20 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from .utils.news import update_stock_news
 from .utils.stock import update_stock_data, TICKERS
 from .utils.forecast import update_forecast
-from datetime import datetime, time, timedelta
+from datetime import datetime, timedelta
+from .models import StockNews, StockForecast
 import pytz
 
 tz_th = pytz.timezone("Asia/Bangkok")
 tz_ny = pytz.timezone("America/New_York")
 
-# ---------------------------
-# Stock Scheduler
-# ---------------------------
+
 stock_scheduler = BackgroundScheduler()
 
 def start_stock_scheduler(app):
     with app.app_context():
         from .models import Stock
         now_th = datetime.now(tz_th)
-        market_open = time(9,30)
-        market_close = time(16,0)
 
         if Stock.query.count() == 0:
             print("Stock DB empty -> Fetch latest data")
@@ -57,14 +54,10 @@ def start_stock_scheduler(app):
     print("Stock scheduler started ✅")
 
 
-# ---------------------------
-# News Scheduler
-# ---------------------------
 news_scheduler = BackgroundScheduler()
 
 def start_news_scheduler(app):
     with app.app_context():
-        from .models import StockNews
         now_th = datetime.now(tz_th)
         today_19 = now_th.replace(hour=19, minute=0, second=0, microsecond=0)
         cutoff = today_19 if now_th >= today_19 else today_19 - timedelta(days=1)
@@ -94,16 +87,8 @@ def start_news_scheduler(app):
     print("News scheduler started ✅")
 
 
-# ---------------------------
-# Forecast Scheduler
-# ---------------------------
-def start_forecast_scheduler(app):
-    """
-    ตรวจสอบว่า StockForecast DB ว่างหรือไม่
-    ถ้าว่าง → forecast ครั้งแรกและเก็บลง DB
-    """
-    from .models import StockForecast
 
+def start_forecast_scheduler(app):
     with app.app_context():
         models = ["arima", "sarima", "sarimax", "lstm"]
         steps_list = [7, 180, 365]
@@ -111,15 +96,14 @@ def start_forecast_scheduler(app):
         for t in TICKERS:
             for m in models:
                 for steps in steps_list:
-                    # ตรวจสอบว่ามี forecast ใน DB หรือไม่
                     fc = StockForecast.query.filter_by(symbol=t, model=m, steps=steps).first()
                     if not fc:
                         print(f"Forecast DB empty -> Update {t}-{m}-{steps}d")
-                        # เรียก update_forecast สำหรับสร้าง forecast ใหม่และเก็บลง DB
                         update_forecast(app, [t], models=[m], steps_list=[steps])
                     else:
                         print(f"Forecast already exists for {t}-{m}-{steps}d, skipping.")
 
+                        
 # forecast_scheduler = BackgroundScheduler()
 # def start_forecast_scheduler(app):
 #     from .models import StockForecast

@@ -9,12 +9,45 @@ import pandas as pd
 from datetime import datetime
 
 
+MARKET_MAPPING = {
+    "AEP": "NASDAQ",
+    "DUK": "NYSE",
+    "SO": "NYSE",
+    "ED": "NYSE",
+    "EIX": "NYSE"
+}
+
+
 views = Blueprint('views', __name__)
 
 
-# ---------------------------
-# Home & Heatmap
-# ---------------------------
+def downsample_historical(data, steps):
+    if not data or not isinstance(data, list):
+        return data
+    if steps <= 7:
+        return data
+
+    df = pd.DataFrame(data)
+    if "date" not in df or "price" not in df:
+        return data
+
+    df["date"] = pd.to_datetime(df["date"])
+    df.set_index("date", inplace=True)
+
+    last_day = df.index[-1]  
+    if steps == 180:
+        df_down = df.iloc[::7] 
+    elif steps == 365:
+        df_down = df.iloc[::30]  
+    else:
+        return data
+
+    if last_day not in df_down.index:
+        df_down.loc[last_day] = df.loc[last_day]
+
+    df_down = df_down.sort_index()
+    return [{"date": d.strftime("%Y-%m-%d"), "price": float(p)} for d, p in df_down["price"].items()]
+
 @views.route('/')
 def home():
     return render_template('home.html')
@@ -34,14 +67,6 @@ def heatmap():
 
     return render_template("heatmap.html", data=data, last_updated=last_updated_str)
 
-MARKET_MAPPING = {
-    "AEP": "NASDAQ",
-    "DUK": "NYSE",
-    "SO": "NYSE",
-    "ED": "NYSE",
-    "EIX": "NYSE"
-}
-
 @views.route('/stock/<symbol>')
 def stock_detail(symbol):
     stock = Stock.query.filter_by(symbol=symbol).first()
@@ -50,10 +75,6 @@ def stock_detail(symbol):
     market = MARKET_MAPPING.get(symbol, "NASDAQ")  
     return render_template("stock_detail.html", stock=stock, market=market)
 
-
-# ---------------------------
-# News
-# ---------------------------
 @views.route('/news/<symbol>')
 def news(symbol):
     sn = StockNews.query.filter_by(symbol=symbol).first()
@@ -63,13 +84,6 @@ def news(symbol):
         news_list = []
     return render_template("news.html", symbol=symbol, news=news_list[:5])
 
-
-
-
-
-# ---------------------------
-# Stock Analytics
-# ---------------------------
 @views.route('/stock/analytics/<symbol>')
 def stock_analytics(symbol):
     stock = Stock.query.filter_by(symbol=symbol).first()
@@ -87,7 +101,6 @@ def stock_analytics(symbol):
         stk_yf = yf.Ticker(symbol)
         info = stk_yf.info
 
-        # Historical price
         hist = stk_yf.history(period="5y")
         if not hist.empty:
             hist_full = hist.copy()
@@ -97,12 +110,10 @@ def stock_analytics(symbol):
             hist_full['Date'] = hist_full['Date'].dt.strftime('%Y-%m-%d')
             hist_prices = hist_full[['Date','Close','MA50','MA200']].to_dict(orient='list')
 
-            # S&P500
             sp500_hist = yf.Ticker("^GSPC").history(period="5y")['Close'].reset_index()
             sp500_hist['Date'] = sp500_hist['Date'].dt.strftime('%Y-%m-%d')
             sp500_prices = sp500_hist['Close'].tolist()
 
-        # Financials: revenue & net income
         if hasattr(stk_yf, 'financials') and not stk_yf.financials.empty:
             fin = stk_yf.financials.T.reset_index()
             fin.rename(columns={'index':'date','Total Revenue':'revenue','Net Income':'netIncome'}, inplace=True)
@@ -111,7 +122,6 @@ def stock_analytics(symbol):
     except Exception as e:
         print("Error fetching yfinance:", e)
 
-    # Overview
     div_yield_raw = info.get("dividendYield")
     div_yield = round(div_yield_raw, 2) if div_yield_raw else 0
     pe_raw = info.get("trailingPE")
@@ -138,16 +148,6 @@ def stock_analytics(symbol):
         financials=financials
     )
 
-
-
-
-
-
-
-# ---------------------------
-# Dashboard
-# ---------------------------
-from datetime import datetime
 @views.route('/dashboard')
 def dashboard():
     stocks = Stock.query.all()
@@ -225,44 +225,6 @@ def dashboard():
         historical_dates=historical_dates
     )
 
-
-# ---------------------------
-# Helper: downsample
-# ---------------------------
-def downsample_historical(data, steps):
-    """ลด resolution ให้สอดคล้องกับ horizon โดยเก็บวันล่าสุดเหมือนเดิม"""
-    if not data or not isinstance(data, list):
-        return data
-    if steps <= 7:
-        return data
-
-    df = pd.DataFrame(data)
-    if "date" not in df or "price" not in df:
-        return data
-
-    df["date"] = pd.to_datetime(df["date"])
-    df.set_index("date", inplace=True)
-
-    last_day = df.index[-1]  # เก็บวันล่าสุด
-    if steps == 180:
-        df_down = df.iloc[::7]  # เลือกทุก 7 วัน โดยไม่เปลี่ยนวันล่าสุด
-    elif steps == 365:
-        df_down = df.iloc[::30]  # เลือกทุก 30 วัน (ประมาณเดือนละ 1 ครั้ง)
-    else:
-        return data
-
-    # แนะนำ: เพิ่มวันล่าสุดกลับเข้าไปเสมอ
-    if last_day not in df_down.index:
-        df_down.loc[last_day] = df.loc[last_day]
-
-    df_down = df_down.sort_index()
-    return [{"date": d.strftime("%Y-%m-%d"), "price": float(p)} for d, p in df_down["price"].items()]
-
-
-
-# ---------------------------
-# Forecasting
-# ---------------------------
 @views.route('/forecasting/<symbol>/<model>')
 def forecasting(symbol, model):
     model = (model or "arima").lower()
@@ -316,10 +278,6 @@ def forecasting(symbol, model):
                            has_data=True, steps=steps,
                            last_updated=fc.updated_at.strftime("%Y-%m-%d %H:%M"))
 
-
-# ---------------------------
-# Compare
-# ---------------------------
 @views.route('/compare/<symbol>')
 def compare_models(symbol):
     steps = int(request.args.get("steps", 7))
@@ -343,7 +301,6 @@ def compare_models(symbol):
 
         backtest_mae = getattr(fc, "backtest_mae", 0)
 
-        # Historical
         h = getattr(fc, "historical_json", None) or []
         if not h:
             try:

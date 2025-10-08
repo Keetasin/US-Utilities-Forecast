@@ -13,9 +13,7 @@ from ..models import StockForecast
 from .. import db
 from datetime import datetime, timedelta
 
-# ==========================
-# Custom parameters for each stock
-# ==========================
+
 MODEL_PARAMS = {
     "AEP": {
         "arima":   {"order": (1, 1, 0)},
@@ -44,17 +42,16 @@ MODEL_PARAMS = {
     }
 }
 
+EXOG_TICKERS = {"oil": "CL=F", "gas": "NG=F", "xlu": "XLU"}
+CALENDAR_TO_BDAYS = {7: 5, 180: 126, 365: 252}
+
+
 def get_params(symbol: str, model_name: str):
     symbol_cfg = MODEL_PARAMS.get(symbol, {})
     model_cfg = symbol_cfg.get(model_name, {})
     order = model_cfg.get("order", (2,1,0))
     seasonal_order = model_cfg.get("seasonal_order", (1,1,0,20))
     return order, seasonal_order
-
-# ==========================
-# Exogenous variables
-# ==========================
-EXOG_TICKERS = {"oil": "CL=F", "gas": "NG=F", "xlu": "XLU"}
 
 def get_exogenous(period="5y"):
     exog_df = pd.DataFrame()
@@ -68,7 +65,6 @@ def get_exogenous(period="5y"):
     return exog_df
 
 def forecast_exog_series(exog_series: pd.Series, steps: int):
-    """Forecast exogenous variable with random walk from historical returns"""
     try:
         returns = exog_series.pct_change().dropna()
         mu, sigma = returns.mean(), returns.std()
@@ -86,11 +82,6 @@ def forecast_exog_series(exog_series: pd.Series, steps: int):
         last_val = exog_series.iloc[-1]
         return pd.Series([last_val]*steps, index=to_bday_future_index(exog_series.index[-1], steps))
 
-# ==========================
-# Mapping calendar horizon → BDays
-# ==========================
-CALENDAR_TO_BDAYS = {7: 5, 180: 126, 365: 252}
-
 def steps_to_bdays(steps: int) -> int:
     return CALENDAR_TO_BDAYS.get(steps, steps)
 
@@ -99,9 +90,6 @@ def to_bday_future_index(last_dt: pd.Timestamp, steps: int) -> pd.DatetimeIndex:
     start = last_dt + pd.offsets.BDay(1)
     return pd.bdate_range(start=start, periods=bdays)
 
-# ==========================
-# Utils
-# ==========================
 def to_scalar(x) -> float:
     return float(np.asarray(x).reshape(-1)[0])
 
@@ -136,18 +124,12 @@ def get_period_by_model(model_name: str, steps: int) -> str:
     else:
         return "10y"
 
-# ==========================
-# Seasonal logic
-# ==========================
 def choose_seasonal_m(steps: int) -> int:
     if steps <= 30: return 5
     elif steps <= 180: return 20
     elif steps <= 365: return 63
     else: return 252
 
-# ==========================
-# LSTM (better version)
-# ==========================
 def lstm_forecast_better(series: pd.Series,
                          exog: pd.DataFrame | None = None,
                          steps: int = 7,
@@ -220,9 +202,6 @@ def lstm_forecast_better(series: pd.Series,
 
     return np.array(pred_prices, dtype=np.float32)
 
-# ==========================
-# Forecasting helpers
-# ==========================
 def backtest_last_n_days(series: pd.Series, model_name: str, steps=7, exog=None, symbol="GENERIC"):
     s = ensure_datetime_freq(series)
     steps_b = steps_to_bdays(steps)
@@ -305,9 +284,6 @@ def future_forecast(series: pd.Series, model_name: str, steps=7, exog=None, symb
 
     return pd.Series(fc.values, index=to_bday_future_index(last_dt, steps_b))
 
-# ==========================
-# Update forecast
-# ==========================
 def update_forecast(app, tickers, models=["arima","sarima","sarimax","lstm"], steps_list=[7,180,365]):
     from pytz import timezone, UTC
 
