@@ -5,11 +5,10 @@
 {% block content %}
 <link rel="stylesheet" href="{{ url_for('static', filename='style/news.css') }}">
 
-<h2 class="title">{{ symbol }} - News</h2>
-
-<a class="back-link" href="{{ url_for('views.stock_detail', symbol=symbol) }}">Stock Detail</a>
-<a class="back-link" href="{{ url_for('views.stock_analytics', symbol=symbol) }}">Analytics</a>
-<a class="back-link" href="{{ url_for('views.forecasting', symbol=symbol, model='arima') }}">Forecasting</a>
+<h2 class="title">News</h2>
+<a href="{{ url_for('views.stock_detail', symbol=symbol) }}">
+    <h2 class="title" style="font-size: 24px;">{{ symbol }}</h2>
+</a>
 
 <div class="news-list">
     {% for n in news %}
