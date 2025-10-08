@@ -6,9 +6,12 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='style/news.css') }}">
 
 <h2 class="title">News</h2>
-<a href="{{ url_for('views.stock_detail', symbol=symbol) }}">
-    <h2 class="title" style="font-size: 24px;">{{ symbol }}</h2>
-</a>
+<h3 class="title" style="font-size:28px;">
+    <a href="{{ url_for('views.stock_detail', symbol=symbol) }}" style="color:#00e5ff; text-decoration:none;">
+        {{ symbol }}
+    </a> 
+</h3>
+
 
 <div class="news-list">
     {% for n in news %}
