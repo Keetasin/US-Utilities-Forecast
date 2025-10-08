@@ -4,10 +4,12 @@
 {% block content %}
 <link rel="stylesheet" href="{{ url_for('static', filename='style/stock_analytics.css') }}">
 
-<h2>{{ stock.symbol }}</h2>
+<a href="{{ url_for('views.stock_detail', symbol=stock.symbol) }}">
+    <h2 class="title">{{ stock.symbol }}</h2>
+</a>
+
 <p>{{ last_updated }}</p>
 
-<!-- ===== Overview Cards ===== -->
 <div class="cards-container">
     <div class="card">
         <h4> Dividend Yield</h4>
@@ -23,7 +25,6 @@
     </div>
 </div>
 
-<!-- ===== Chart Controls ===== -->
 <div class="chart-controls">
     <select id="chartSelect">
         <option value="maChart">Price vs Moving Averages (MA50, MA200)</option>
@@ -42,7 +43,6 @@
     </select>
 </div>
 
-<!-- ===== Chart Containers ===== -->
 <div class="chart-section">
     <div id="maChart" style="width:100%;height:500px;"></div>
     <div id="relativePerfChart" style="width:100%;height:500px; display:none;"></div>
@@ -62,7 +62,6 @@ let relativePerf = [];
 let volatility = [];
 let dividends = hist.Close.map((p,i) => ({Date: hist.Date[i], Value: p * ({{ overview_data[0].div_yield }} / 100)})); // Dividend Yield Historical
 
-// --- Relative Performance ---
 (function() {
     const sp500 = {{ sp500_prices|tojson }};
     if(hist.Date.length && sp500.length) {
@@ -74,7 +73,6 @@ let dividends = hist.Close.map((p,i) => ({Date: hist.Date[i], Value: p * ({{ ove
     }
 })();
 
-// --- Volatility (Rolling Std Dev 20 วัน) ---
 (function() {
     if(hist.Close.length) {
         for(let i=0;i<hist.Close.length;i++){
@@ -89,62 +87,70 @@ let dividends = hist.Close.map((p,i) => ({Date: hist.Date[i], Value: p * ({{ ove
     }
 })();
 
-// --- Plot functions ---
+
+function getStartIndexByTradingDays(dates, timeRange) {
+    let tradingDays = 0;
+    if(timeRange==="1wk") tradingDays = 5;       
+    else if(timeRange==="1mo") tradingDays = 21; 
+    else if(timeRange==="6mo") tradingDays = 126; 
+    else if(timeRange==="1y") tradingDays = 252; 
+    else tradingDays = dates.length;
+
+    return Math.max(dates.length - tradingDays, 0);
+}
+
+function sliceTradingDays(dataArray, datesArray, timeRange) {
+    let startIdx = getStartIndexByTradingDays(datesArray, timeRange);
+    return dataArray.slice(startIdx);
+}
+
+
 function plotMA(timeRange) {
-    let startIndex = getStartIndex(hist.Date.length, timeRange);
-    const sliced = {
-        Date: hist.Date.slice(startIndex),
-        Close: hist.Close.slice(startIndex),
-        MA50: hist.MA50.slice(startIndex),
-        MA200: hist.MA200.slice(startIndex)
-    };
+    const slicedDates = hist.Date.slice(getStartIndexByTradingDays(hist.Date, timeRange));
+    const slicedClose = sliceTradingDays(hist.Close, hist.Date, timeRange);
+    const slicedMA50 = sliceTradingDays(hist.MA50, hist.Date, timeRange);
+    const slicedMA200 = sliceTradingDays(hist.MA200, hist.Date, timeRange);
+
     Plotly.newPlot('maChart', [
-        { x: sliced.Date, y: sliced.Close, name: 'Price', type: 'scatter', line:{color:'#00e5ff'} },
-        { x: sliced.Date, y: sliced.MA50, name: 'MA50', type: 'scatter', line:{color:'#ff6f61'} },
-        { x: sliced.Date, y: sliced.MA200, name: 'MA200', type: 'scatter', line:{color:'#ffa500'} }
+        { x: slicedDates, y: slicedClose, name: 'Price', type: 'scatter', line:{color:'#00e5ff'} },
+        { x: slicedDates, y: slicedMA50, name: 'MA50', type: 'scatter', line:{color:'#ff6f61'} },
+        { x: slicedDates, y: slicedMA200, name: 'MA200', type: 'scatter', line:{color:'#ffa500'} }
     ], layoutConfig('Price'));
 }
 
 function plotRelative(timeRange) {
-    let startIndex = getStartIndex(relativePerf.length, timeRange);
-    const sliced = relativePerf.slice(startIndex);
+    const sliced = relativePerf.slice(getStartIndexByTradingDays(relativePerf.map(d=>d.Date), timeRange));
     Plotly.newPlot('relativePerfChart', [
         { x: sliced.map(d=>d.Date), y: sliced.map(d=>d.Value), name: '{{ stock.symbol }} vs S&P500', type:'scatter', line:{color:'#00e5ff'} }
     ], layoutConfig('Relative Performance (%)'));
 }
 
 function plotVolatility(timeRange) {
-    let startIndex = getStartIndex(volatility.length, timeRange);
-    const sliced = volatility.slice(startIndex);
+    const sliced = volatility.slice(getStartIndexByTradingDays(volatility.map(d=>d.Date), timeRange));
     Plotly.newPlot('volatilityChart', [
-        { x: sliced.map(d=>d.Date), y: sliced.map(d=>d.Value), name: 'Volatility', type:'scatter', line:{color:'#ff6f61'} }
+        { x: sliced.map(d=>d.Date), y: sliced.map(d=>d.Value), name: 'Volatility', type:'scatter', line:{color:'#00e5ff'} }
     ], layoutConfig('Volatility (Rolling Std Dev)'));
 }
 
 function plotRevenue() {
     if(!financials || !financials.length) return;
-    const sliced = financials.sort((a,b) => new Date(a.date) - new Date(b.date));
+
+    const sorted = financials.sort((a,b) => new Date(a.date) - new Date(b.date));
+
+    const filtered = sorted.filter(d => d.revenue > 0 || d.netIncome > 0);
+
     Plotly.newPlot('revenueChart', [
-        { x: sliced.map(d=>d.date), y: sliced.map(d=>d.revenue), name:'Revenue', type:'bar' },
-        { x: sliced.map(d=>d.date), y: sliced.map(d=>d.netIncome), name:'Net Income', type:'bar' }
+        { x: filtered.map(d=>d.date), y: filtered.map(d=>d.revenue), name:'Revenue', type:'bar' },
+        { x: filtered.map(d=>d.date), y: filtered.map(d=>d.netIncome), name:'Net Income', type:'bar' }
     ], layoutConfig('USD'));
 }
 
-// --- Dividend Yield Historical ---
 function plotDividend() {
     Plotly.newPlot('dividendChart', [
         { x: dividends.map(d=>d.Date), y: dividends.map(d=>d.Value), name:'Dividend Yield', type:'scatter', line:{color:'#00e5ff'} }
-    ], layoutConfig('USD'));
+    ], layoutConfig('Dividend Yield (%)'));
 }
 
-// --- Helpers ---
-function getStartIndex(length, timeRange) {
-    if(timeRange==="1wk") return Math.max(length-7,0);
-    if(timeRange==="1mo") return Math.max(length-30,0);
-    if(timeRange==="6mo") return Math.max(length-126,0);
-    if(timeRange==="1y") return Math.max(length-252,0);
-    return 0;
-}
 function layoutConfig(yTitle){
     return {
         plot_bgcolor:'#111',
@@ -155,7 +161,6 @@ function layoutConfig(yTitle){
     };
 }
 
-// --- Switch charts ---
 chartSelect.addEventListener('change', () => {
     const value = chartSelect.value;
     document.getElementById('maChart').style.display = value==='maChart'?'block':'none';
@@ -164,7 +169,6 @@ chartSelect.addEventListener('change', () => {
     document.getElementById('revenueChart').style.display = value==='revenueChart'?'block':'none';
     document.getElementById('dividendChart').style.display = value==='dividendChart'?'block':'none';
 
-    // ซ่อน/แสดง timeFilter
     timeFilter.style.display = (value==='revenueChart' || value==='dividendChart')?'none':'inline-block';
 
     if(value==='maChart') plotMA(timeFilter.value);
@@ -174,14 +178,12 @@ chartSelect.addEventListener('change', () => {
     else if(value==='dividendChart') plotDividend();
 });
 
-// --- Update charts on time filter change ---
 timeFilter.addEventListener('change', () => {
     if(chartSelect.value==='maChart') plotMA(timeFilter.value);
     else if(chartSelect.value==='relativePerfChart') plotRelative(timeFilter.value);
     else if(chartSelect.value==='volatilityChart') plotVolatility(timeFilter.value);
 });
 
-// --- initial plot ---
 plotMA(timeFilter.value);
 </script>
 {% endblock %}
