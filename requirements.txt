@@ -14,6 +14,7 @@ pendulum
 pandas
 numpy
 yfinance
+multitasking==0.0.10
 statsmodels
 scikit-learn
 SQLAlchemy
@@ -25,6 +26,12 @@ pyspark==3.5.1
 
 # --- Deep Learning ---
 tensorflow==2.17.0
+
+# --- Technical Indicators ---
+ta
+
+# --- Airflow Core ---
+apache-airflow==2.9.2
 
 # --- Airflow providers ---
 apache-airflow-providers-apache-spark
