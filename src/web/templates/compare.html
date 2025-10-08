@@ -1,12 +1,16 @@
 {% extends "base.html" %}
-{% block title %}Compare Models — {{ symbol }}{% endblock %}
+{% block title %}Compare Models{% endblock %}
 
 {% block content %}
 <link rel="stylesheet" href="{{ url_for('static', filename='style/compare.css') }}">
 
-<h2 class="title">Compare Models — {{ symbol }}</h2>
+<h2 class="title">Compare Models</h2>
+<h3 class="title" style="font-size:28px;">
+    <a href="{{ url_for('views.stock_detail', symbol=symbol) }}" style="color:#00e5ff; text-decoration:none;">
+        {{ symbol }}
+    </a> 
+</h3>
 
-<!-- Toolbar: Models -->
 <div class="chart-controls compare-toolbar">
   <a class="btn {{ 'active' if request.args.get('model')=='arima' else '' }}"
      href="{{ url_for('views.forecasting', symbol=symbol, model='arima', steps=request.args.get('steps',steps)) }}">ARIMA</a>
@@ -18,7 +22,6 @@
      href="{{ url_for('views.forecasting', symbol=symbol, model='lstm', steps=request.args.get('steps',steps)) }}">LSTM</a>
 </div>
 
-<!-- Dropdown horizon -->
 <div class="chart-controls compare-filters">
   <form method="get" action="{{ url_for('views.compare_models', symbol=symbol) }}">
     <select name="steps" id="steps" onchange="this.form.submit()">
@@ -29,12 +32,11 @@
   </form>
 </div>
 
-
 <div class="card">
   <p><strong>Last Price:</strong> ${{ last_price }}</p>
   {% if best_model %}
-    <p><strong>Best (lowest MAE):</strong> 
-      <span class="badge badge-best">{{ best_model }}</span> — ${{ best_mae | round(2) }}
+    <p><strong>Best Model:</strong> 
+      <span class="badge badge-best">{{ best_model }}</span>
     </p>
   {% endif %}
 </div>
@@ -86,7 +88,7 @@
 </div>
 
 <div class="card">
-  <h3 style="margin:0 0 10px;">Chart</h3>
+  <h3 style="margin:0 0 10px;">Forecast Chart</h3>
   <div style="position:relative; width:95%; max-width:1200px;">
     <canvas id="cmpChart"></canvas>
   </div>

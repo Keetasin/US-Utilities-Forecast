@@ -8,8 +8,6 @@
 .btn { padding:8px 12px; border-radius:10px; border:1px solid #444; background:#111; color:#fff; text-decoration:none; }
 .btn-primary { background:#00d1ff; color:#000; border: none; font-weight:700; }
 
-
-/* ===== Toolbar & Filters for Compare Models ===== */
 .compare-toolbar, .compare-filters {
     display: flex;
     gap: 15px;
@@ -44,7 +42,6 @@
     box-shadow: 0 0 20px #00e5ff;
 }
 
-/* Dropdown */
 .compare-filters select {
     display: inline-block;
     padding: 10px 15px;
@@ -57,7 +54,6 @@
     transition: all 0.3s;
 }
 
-/* Responsive */
 @media (max-width: 768px) {
     .compare-toolbar, .compare-filters {
         flex-direction: column;
