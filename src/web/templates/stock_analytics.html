@@ -4,9 +4,11 @@
 {% block content %}
 <link rel="stylesheet" href="{{ url_for('static', filename='style/stock_analytics.css') }}">
 
-<a href="{{ url_for('views.stock_detail', symbol=stock.symbol) }}">
-    <h2 class="title">{{ stock.symbol }}</h2>
-</a>
+<h2 class="title" style="font-size:28px;">
+    <a href="{{ url_for('views.stock_detail', symbol=stock.symbol) }}" style="color:#00e5ff; text-decoration:none;">
+        {{ stock.symbol }}
+    </a> 
+</h2>
 
 <p>{{ last_updated }}</p>
 
