@@ -48,7 +48,7 @@ Ensure that you have Python 3.9+, Docker, and Docker Compose installed on your s
    - Unpause DAG
 
 3. Access the Flask web application
-   - Wait for Airflow to finish running (especially on the first run), then open
+   - Wait for Airflow to finish running (first run only), then open
    ```
    http://localhost:5000
    ```
