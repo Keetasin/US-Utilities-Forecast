@@ -16,7 +16,15 @@ Ensure that you have Python 3.9+, Docker, and Docker Compose installed on your s
    ```bash
    cd US-Utilities-Forecast
    ```
-3. Build the Docker image
+3. Add your NewsAPI key
+   - Sign up and get your API key from https://newsapi.org/
+   - Open the file src/web/utils/news.py
+   - Replace API_KEY with your actual key:
+   ```bash
+   NEWS_API_KEY = "API_KEY" 
+   ```
+   
+4. Build the Docker image
    ```bash
    docker build -t custom-airflow:latest .
    ```
@@ -65,9 +73,6 @@ Ensure that you have Python 3.9+, Docker, and Docker Compose installed on your s
 - 6610110214 Peeranat Pathomkul
 - 6610110425 Keetasin Kongsee
 - 6610110475 Natdanai Chookool
-
-## Project status
-The project is currently in active development.
 
 
 
