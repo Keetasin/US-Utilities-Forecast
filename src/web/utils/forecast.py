@@ -12,7 +12,7 @@ from statsmodels.tsa.statespace.sarimax import SARIMAX
 import ta  
 from ..models import StockForecast
 from .. import db
-
+from pytz import timezone, UTC
 
 MODEL_PARAMS = {
     "AEP": {
@@ -168,7 +168,7 @@ def lstm_forecast_v2(
     exog: pd.DataFrame | None = None,
     steps: int = 7,
     lookback: int = 120,
-    epochs: int = 40,
+    epochs: int = 70,
     batch_size: int = 64,
     patience: int = 10,
     horizon_mode: str = "auto",   
@@ -364,7 +364,7 @@ def lstm_forecast_better(series: pd.Series,
                          exog: pd.DataFrame | None = None,
                          steps: int = 7,
                          lookback: int = 120,
-                         epochs: int = 30,
+                         epochs: int = 70,
                          batch_size: int = 64,
                          patience: int = 10) -> np.ndarray:
     H = steps_to_bdays(int(steps))
@@ -439,29 +439,38 @@ def future_forecast(series: pd.Series, model_name: str, steps=7, exog=None, symb
         fc = m.forecast(steps=steps_b)
 
     elif model_name == "sarima":
-        m = SARIMAX(s, order=order,
-                    seasonal_order=(seasonal_order[0], seasonal_order[1], seasonal_order[2], m_val),
-                    enforce_stationarity=True, enforce_invertibility=True).fit(disp=False)
+        m = SARIMAX(
+            s,
+            order=order,
+            seasonal_order=(seasonal_order[0], seasonal_order[1], seasonal_order[2], m_val),
+            enforce_stationarity=True,
+            enforce_invertibility=True
+        ).fit(disp=False)
         fc = m.forecast(steps=steps_b)
 
     elif model_name == "sarimax":
         if (exog is None) or (isinstance(exog, pd.DataFrame) and exog.empty):
             raise ValueError("SARIMAX requires exogenous variable (exog).")
 
-        ex_hist = ensure_datetime_freq(exog).reindex(s.index)
-        ex_hist = _normalize_exog(ex_hist)
+        exog_hist = ensure_datetime_freq(exog).reindex(s.index)
+        exog_hist = exog_hist.ffill().bfill().replace([np.inf, -np.inf], np.nan).fillna(0)
 
         fut_idx = to_bday_future_index(last_dt, steps_b)
-        ex_future = pd.DataFrame(index=fut_idx)
-        for col in ex_hist.columns:
-            ex_future[col] = forecast_exog_series(ex_hist[col], steps_b)
-        ex_future = _normalize_exog(ex_future)
+        exog_future = pd.DataFrame(index=fut_idx)
+        for col in exog_hist.columns:
+            exog_future[col] = forecast_exog_series(exog_hist[col], steps_b)
+        exog_future = exog_future.replace([np.inf, -np.inf], np.nan).fillna(0)
 
-        m = SARIMAX(s, order=order,
-                    seasonal_order=(seasonal_order[0], seasonal_order[1], seasonal_order[2], m_val),
-                    exog=ex_hist,
-                    enforce_stationarity=True, enforce_invertibility=True).fit(disp=False)
-        fc = m.forecast(steps=steps_b, exog=ex_future)
+        m = SARIMAX(
+            s,
+            order=order,
+            seasonal_order=(seasonal_order[0], seasonal_order[1], seasonal_order[2], m_val),
+            exog=exog_hist,
+            enforce_stationarity=False,
+            enforce_invertibility=False
+        ).fit(disp=False)
+
+        fc = m.forecast(steps=steps_b, exog=exog_future)
         return pd.Series(np.asarray(fc).ravel(), index=fut_idx)
 
     elif model_name == "lstm":
@@ -474,11 +483,6 @@ def future_forecast(series: pd.Series, model_name: str, steps=7, exog=None, symb
     return pd.Series(fc.values, index=to_bday_future_index(last_dt, steps_b))
 
 def update_forecast(app, tickers, models=("arima","sarima","sarimax","lstm"), steps_list=(7,180,365)):
-    """
-    Pulls data from Yahoo Finance, fits models, writes results to StockForecast.
-    Skips if already updated after 19:30 Asia/Bangkok of current day.
-    """
-    from pytz import timezone, UTC
     tz_th = timezone("Asia/Bangkok")
     now_th = datetime.now(tz_th)
     today_19_30 = now_th.replace(hour=19, minute=30, second=0, microsecond=0)
