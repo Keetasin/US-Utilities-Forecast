@@ -160,7 +160,7 @@ def get_period_by_model(model_name: str, steps: int) -> str:
 def choose_seasonal_m(steps: int) -> int:
     if steps <= 30: return 5
     elif steps <= 180: return 20
-    elif steps <= 365: return 63
+    elif steps <= 365: return 20
     else: return 252
 
 def lstm_forecast_v2(
@@ -398,7 +398,7 @@ def backtest_last_n_days(series: pd.Series, model_name: str, steps=7, exog=None,
     elif model_name == "sarima":
         m = SARIMAX(train_data, order=order,
                     seasonal_order=(seasonal_order[0], seasonal_order[1], seasonal_order[2], m_val),
-                    enforce_stationarity=True, enforce_invertibility=True).fit(disp=False)
+                    enforce_stationarity=True, enforce_invertibility=True).fit(disp=False, method="powell", maxiter=50)
         fc = m.forecast(steps=steps_b)
 
     elif model_name == "sarimax":
@@ -411,7 +411,7 @@ def backtest_last_n_days(series: pd.Series, model_name: str, steps=7, exog=None,
         m = SARIMAX(train_data, order=order,
                     seasonal_order=(seasonal_order[0], seasonal_order[1], seasonal_order[2], m_val),
                     exog=ex_tr,
-                    enforce_stationarity=True, enforce_invertibility=True).fit(disp=False)
+                    enforce_stationarity=True, enforce_invertibility=True).fit(disp=False, method="powell", maxiter=50)
         fc = m.forecast(steps=steps_b, exog=ex_fu)
 
     elif model_name == "lstm":
