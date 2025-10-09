@@ -29,10 +29,11 @@ engine = create_engine(PG_CONN)
 
 TICKERS = ["AEP", "DUK", "SO", "ED", "EXC"]
 MODELS = ["ARIMA", "SARIMA", "SARIMAX", "LSTM"]
-
 CALENDAR_TO_BDAYS = {7: 5, 180: 126, 365: 252}
 
-PARQUET_PATH = "/opt/airflow/src/spark/data/spark_out/market.parquet"
+PARQUET_PATH = "/opt/airflow/data/spark_out/market.parquet"
+EXOG_PATH    = "/opt/airflow/data/spark_out/exog.parquet" 
+
 
 tz_th = pendulum.timezone("Asia/Bangkok")
 default_args = {
@@ -153,30 +154,25 @@ def forecast_exog_series(exog_series: pd.Series, steps: int):
 def build_indicators(close: pd.Series) -> pd.DataFrame:
     s = ensure_datetime_freq(close).astype(_bi.float)
     df = pd.DataFrame(index=s.index)
-
     df["ind_ema10"] = ta.trend.ema_indicator(s, window=10, fillna=True)
     df["ind_ema50"] = ta.trend.ema_indicator(s, window=50, fillna=True)
-
     df["ind_rsi14"] = ta.momentum.rsi(s, window=14, fillna=True)
- 
     macd = ta.trend.MACD(s, window_slow=26, window_fast=12, window_sign=9, fillna=True)
     df["ind_macd"] = macd.macd()
     df["ind_macd_signal"] = macd.macd_signal()
-
     bb = ta.volatility.BollingerBands(s, window=20, window_dev=2, fillna=True)
     df["ind_bbp"] = (s - bb.bollinger_lband()) / (bb.bollinger_hband() - bb.bollinger_lband() + 1e-9)
-   
     df["ind_vol20"] = s.pct_change().rolling(20, min_periods=1).std().fillna(0.0)
-  
     df = df.replace([np.inf, -np.inf], np.nan).fillna(method="ffill").fillna(method="bfill").fillna(0.0)
     return df
+
 
 def lstm_forecast_v2(
     series: pd.Series,
     exog: pd.DataFrame | None = None,
     steps: int = 7,
     lookback: int = 120,
-    epochs: int = 30,
+    epochs: int = 60,
     batch_size: int = 64,
     patience: int = 10,
     horizon_mode: str = "auto",  
@@ -361,7 +357,7 @@ def lstm_forecast_better(series: pd.Series,
                          exog: pd.DataFrame | None = None,
                          steps: int = 7,
                          lookback: int = 120,
-                         epochs: int = 30,
+                         epochs: int = 60,
                          batch_size: int = 64,
                          patience: int = 10) -> np.ndarray:
     H = steps_to_bdays(int(steps))
@@ -433,36 +429,45 @@ def future_forecast(series: pd.Series, model_name: str, steps=7, exog=None, symb
     steps_b = steps_to_bdays(steps)
 
     order, seasonal_order = get_params(symbol, model_name)
+    m_val = choose_seasonal_m(steps_b)
 
     if model_name == "arima":
         m = ARIMA(s, order=order).fit()
         fc = m.forecast(steps=steps_b)
 
     elif model_name == "sarima":
-        m_val = choose_seasonal_m(steps_b)
-        m = SARIMAX(s, order=order,
-                    seasonal_order=(seasonal_order[0], seasonal_order[1], seasonal_order[2], m_val),
-                    enforce_stationarity=False, enforce_invertibility=False).fit(disp=False)
+        m = SARIMAX(
+            s,
+            order=order,
+            seasonal_order=(seasonal_order[0], seasonal_order[1], seasonal_order[2], m_val),
+            enforce_stationarity=True,
+            enforce_invertibility=True
+        ).fit(disp=False)
         fc = m.forecast(steps=steps_b)
 
     elif model_name == "sarimax":
         if (exog is None) or (isinstance(exog, pd.DataFrame) and exog.empty):
             raise ValueError("SARIMAX requires exogenous variable (exog).")
-        ex_hist = ensure_datetime_freq(exog).reindex(s.index)
-        ex_hist = ex_hist.ffill().bfill().replace([np.inf, -np.inf], np.nan).fillna(0)
+        
+        exog_hist = ensure_datetime_freq(exog).reindex(s.index)
+        exog_hist = exog_hist.ffill().bfill().replace([np.inf, -np.inf], np.nan).fillna(0)
 
         fut_idx = to_bday_future_index(last_dt, steps_b)
-        ex_future = pd.DataFrame(index=fut_idx)
-        for col in ex_hist.columns:
-            ex_future[col] = forecast_exog_series(ex_hist[col], steps_b)
-        ex_future = ex_future.replace([np.inf, -np.inf], np.nan).fillna(0)
+        exog_future = pd.DataFrame(index=fut_idx)
+        for col in exog_hist.columns:
+            exog_future[col] = forecast_exog_series(exog_hist[col], steps_b)
+        exog_future = exog_future.replace([np.inf, -np.inf], np.nan).fillna(0)
 
-        m_val = choose_seasonal_m(steps_b)
-        m = SARIMAX(s, order=order,
-                    seasonal_order=(seasonal_order[0], seasonal_order[1], seasonal_order[2], m_val),
-                    exog=ex_hist,
-                    enforce_stationarity=False, enforce_invertibility=False).fit(disp=False)
-        fc = m.forecast(steps=steps_b, exog=ex_future)
+        m = SARIMAX(
+            s,
+            order=order,
+            seasonal_order=(seasonal_order[0], seasonal_order[1], seasonal_order[2], m_val),
+            exog=exog_hist,
+            enforce_stationarity=False,
+            enforce_invertibility=False
+        ).fit(disp=False)
+
+        fc = m.forecast(steps=steps_b, exog=exog_future)
         return pd.Series(np.asarray(fc).ravel(), index=fut_idx)
 
     elif model_name == "lstm":
@@ -477,7 +482,6 @@ def future_forecast(series: pd.Series, model_name: str, steps=7, exog=None, symb
 def choose_seasonal_m(steps: int) -> int:
     if steps <= 30: return 5
     elif steps <= 180: return 20
-    # elif steps <= 365: return 63
     elif steps <= 365: return 20
     else: return 252
 
@@ -575,9 +579,6 @@ def read_latest(ti):
     ti.xcom_push(key="last_close", value=last_close)
     print(f"[read_latest] last_close={last_close}")
 
-# def decide_branch(**ctx):
-#     return [f"forecast_group.{s}_{m}_{h}" for s in TICKERS for m in MODELS for h in CALENDAR_TO_BDAYS.keys()]
-
 def decide_branch(**kwargs):
     branch_ids = []
     for sym in TICKERS:
@@ -585,13 +586,6 @@ def decide_branch(**kwargs):
             for h in CALENDAR_TO_BDAYS.keys():
                 branch_ids.append(f"forecast_group_{sym}.{sym}_{model}_{h}")
     return branch_ids
-
-
-# def merge_results(ti):
-#     with engine.begin() as conn:
-#         total = conn.execute(text("SELECT COUNT(*) FROM stock_forecasts")).scalar()
-#         last = conn.execute(text("SELECT MAX(updated_at) FROM stock_forecasts")).scalar()
-#         print(f"📊 Total records: {total}, Last updated: {last}")
 
 with DAG(
     "forecast_stock_pipeline",
@@ -631,15 +625,7 @@ with DAG(
         prev_group >> forecast_group
         prev_group = forecast_group
 
-    # merge = PythonOperator(
-    #     task_id="merge_results",
-    #     python_callable=merge_results,
-    #     trigger_rule=TriggerRule.NONE_FAILED_MIN_ONE_SUCCESS,
-    # )
-
     end = DummyOperator(task_id="end")
 
-
     start >> spark_transform >> read_latest_task >> branch
-    # prev_group >> merge >> end
     prev_group >> end

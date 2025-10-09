@@ -168,7 +168,7 @@ def lstm_forecast_v2(
     exog: pd.DataFrame | None = None,
     steps: int = 7,
     lookback: int = 120,
-    epochs: int = 70,
+    epochs: int = 60,
     batch_size: int = 64,
     patience: int = 10,
     horizon_mode: str = "auto",   
@@ -364,7 +364,7 @@ def lstm_forecast_better(series: pd.Series,
                          exog: pd.DataFrame | None = None,
                          steps: int = 7,
                          lookback: int = 120,
-                         epochs: int = 70,
+                         epochs: int = 60,
                          batch_size: int = 64,
                          patience: int = 10) -> np.ndarray:
     H = steps_to_bdays(int(steps))
