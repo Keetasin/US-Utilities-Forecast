@@ -395,7 +395,7 @@ def backtest_last_n_days(series: pd.Series, model_name: str, steps=7, exog=None,
         m_val = choose_seasonal_m(steps_b)
         m = SARIMAX(train_data, order=order,
                     seasonal_order=(seasonal_order[0], seasonal_order[1], seasonal_order[2], m_val),
-                    enforce_stationarity=False, enforce_invertibility=False).fit(disp=False)
+                    enforce_stationarity=False, enforce_invertibility=False).fit(disp=False, method="powell", maxiter=50)
         fc = m.forecast(steps=steps_b)
 
     elif model_name == "sarimax":
@@ -410,7 +410,7 @@ def backtest_last_n_days(series: pd.Series, model_name: str, steps=7, exog=None,
         m = SARIMAX(train_data, order=order,
                     seasonal_order=(seasonal_order[0], seasonal_order[1], seasonal_order[2], m_val),
                     exog=ex_tr,
-                    enforce_stationarity=False, enforce_invertibility=False).fit(disp=False)
+                    enforce_stationarity=False, enforce_invertibility=False).fit(disp=False, method="powell", maxiter=50)
         fc = m.forecast(steps=steps_b, exog=ex_fu)
 
     elif model_name == "lstm":
@@ -477,7 +477,8 @@ def future_forecast(series: pd.Series, model_name: str, steps=7, exog=None, symb
 def choose_seasonal_m(steps: int) -> int:
     if steps <= 30: return 5
     elif steps <= 180: return 20
-    elif steps <= 365: return 63
+    # elif steps <= 365: return 63
+    elif steps <= 365: return 20
     else: return 252
 
 def run_model(symbol, model_name, horizon, ti):
