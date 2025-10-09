@@ -31,8 +31,8 @@ TICKERS = ["AEP", "DUK", "SO", "ED", "EXC"]
 MODELS = ["ARIMA", "SARIMA", "SARIMAX", "LSTM"]
 CALENDAR_TO_BDAYS = {7: 5, 180: 126, 365: 252}
 
-PARQUET_PATH = "/opt/airflow/data/spark_out/market.parquet"
-EXOG_PATH    = "/opt/airflow/data/spark_out/exog.parquet" 
+PARQUET_PATH = "/opt/airflow/src/spark/data/spark_out/market.parquet"
+EXOG_PATH    = "/opt/airflow/src/spark/data/spark_out/exog.parquet" 
 
 
 tz_th = pendulum.timezone("Asia/Bangkok")
