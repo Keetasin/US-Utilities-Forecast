@@ -574,18 +574,37 @@ def run_model(symbol, model_name, horizon, ti):
 def read_latest(ti):
     pdf = pq.read_table(PARQUET_PATH).to_pandas()
     pdf.columns = [c.lower() for c in pdf.columns]
-    df = pdf[pdf["symbol"].str.lower() == TICKERS[0].lower()].sort_values("date")
-    last_close = float(df.iloc[-1]["close"])
-    ti.xcom_push(key="last_close", value=last_close)
-    print(f"[read_latest] last_close={last_close}")
 
-def decide_branch(**kwargs):
-    branch_ids = []
+    last_closes = [] 
     for sym in TICKERS:
-        for model in MODELS:
-            for h in CALENDAR_TO_BDAYS.keys():
-                branch_ids.append(f"forecast_group_{sym}.{sym}_{model}_{h}")
-    return branch_ids
+        df = pdf[pdf["symbol"].str.lower() == sym.lower()].sort_values("date")
+        if df.empty:
+            continue
+        last_close = float(df.iloc[-1]["close"])
+        last_closes.append({"symbol": sym, "last_close": last_close})
+
+    ti.xcom_push(key="last_close_list", value=last_closes)
+    print(f"[read_latest] last_closes={last_closes}")
+
+def decide_branch(ti, **kwargs):
+    threshold = 1.0 
+    selected = []
+
+    last_closes = ti.xcom_pull(task_ids="read_latest", key="last_close_list")
+    if not last_closes:
+        return "end"
+
+    for item in last_closes:
+        sym = item["symbol"]
+        last_close = item["last_close"]
+        if last_close > threshold:
+            for model in MODELS:
+                for h in CALENDAR_TO_BDAYS.keys():
+                    selected.append(f"forecast_group_{sym}.{sym}_{model}_{h}")
+
+    if not selected:
+        return "end"
+    return selected
 
 with DAG(
     "forecast_stock_pipeline",
