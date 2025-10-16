@@ -609,7 +609,7 @@ def decide_branch(ti, **kwargs):
 with DAG(
     "forecast_stock_pipeline",
     default_args=default_args,
-    description="Forecast DAG (Parquet source) synced with Flask (LSTM v2 + Indicators)",
+    description="Forecast DAG",
     schedule_interval="30 19 * * 1-5",
     start_date=datetime(2025, 1, 1, tzinfo=tz_th),
     catchup=False,
