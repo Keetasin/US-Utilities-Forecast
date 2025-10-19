@@ -1,0 +1,6 @@
+Symbol,ADF Price,p-value Price,ADF Return,p-value Return,Stationary (Price),Stationary (Return)
+AEP,-0.397,0.9106,-20.405,0.0,❌,✅
+DUK,-0.795,0.8207,-35.931,0.0,❌,✅
+SO,-0.365,0.9157,-27.027,0.0,❌,✅
+ED,-1.26,0.6471,-35.908,0.0,❌,✅
+EXC,-1.679,0.4418,-35.595,0.0,❌,✅
