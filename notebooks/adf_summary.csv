@@ -1,6 +1,0 @@
-Symbol,ADF Statistic (Price),p-value (Price),ADF Statistic (Return),p-value (Return),Stationary (Price),Stationary (Return)
-AEP,-0.417,0.9073,-20.417,0.0,❌,✅
-DUK,-0.73,0.8388,-35.948,0.0,❌,✅
-SO,-0.298,0.9258,-27.038,0.0,❌,✅
-ED,-1.249,0.6524,-35.921,0.0,❌,✅
-EXC,-1.648,0.458,-35.606,0.0,❌,✅
